@@ -2,40 +2,45 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
-// --- Типи даних (без змін) ---
-interface Transaction { /* ... */ }
-interface CategoryInfo { /* ... */ }
+// --- Типи даних ---
+interface Transaction { /*...*/ }
+interface CategoryInfo { /*...*/ }
 
-// --- Хелпери (без змін) ---
-const formatNumber = (num: number) => { /* ... */ };
-const parseDate = (dateString: string | null): Date | null => { /* ... */ };
+// --- Хелпери ---
+const formatNumber = (num: number) => { /*...*/ };
 
-// Нова функція для форматування дати в YYYY-MM-DD
-const formatDateForInput = (date: Date) => {
-    const year = date.getFullYear();
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
-    return `<span class="math-inline">\{year\}\-</span>{month}-${day}`;
+// Виправлена функція parseDate
+const parseDate = (dateString: string | null): Date | null => {
+    if (!dateString) return null;
+    // Спочатку спробуємо YYYY-MM-DD
+    let parts = dateString.split('-');
+    if (parts.length === 3) {
+        const date = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+        if (!isNaN(date.getTime())) { return date; }
+    }
+    // Потім спробуємо DD.MM.YYYY
+    parts = dateString.split('.');
+    if (parts.length === 3) {
+        const date = new Date(+parts[2], +parts[1] - 1, +parts[0]);
+        if (!isNaN(date.getTime())) { return date; }
+    }
+    // Якщо жоден формат не підійшов, повертаємо null
+    return null;
 };
 
+// Функція форматування дати в YYYY-MM-DD
+const formatDateForInput = (date: Date) => { /*...*/ };
+
 const TransactionsPage: React.FC = () => {
-  // --- Стан для даних (без змін) ---
+  // --- Стан для даних ---
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<string[]>([]);
   const [categories, setCategories] = useState<CategoryInfo[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // --- Стан для ФІЛЬТРІВ (Використовуємо нову функцію форматування дати) ---
-  const getInitialDates = () => {
-      const today = new Date();
-      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      return {
-          start: formatDateForInput(firstDayOfMonth), // Використовуємо нову функцію
-          end: formatDateForInput(lastDayOfMonth)   // Використовуємо нову функцію
-      }
-  }
+  // --- Стан для ФІЛЬТРІВ ---
+  const getInitialDates = () => { /*...*/ };
   const initialDates = getInitialDates();
   const [startDate, setStartDate] = useState<string>(initialDates.start);
   const [endDate, setEndDate] = useState<string>(initialDates.end);
@@ -43,29 +48,35 @@ const TransactionsPage: React.FC = () => {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedType, setSelectedType] = useState<string>('Всі');
 
-  // --- Завантаження даних (без змін) ---
-  useEffect(() => { /* ... */ }, []);
+  // --- Завантаження даних ---
+  useEffect(() => { /*...*/ }, []);
 
-  // --- ЛОГІКА ФІЛЬТРАЦІЇ (Видаляємо старі console.log) ---
+  // --- ЛОГІКА ФІЛЬТРАЦІЇ (з логуванням) ---
   const filteredTransactions = useMemo(() => {
+    // console.log("--- Running Filter ---");
+    // console.log("Filters:", { startDate, endDate, selectedType, selectedAccounts, selectedCategories });
     const start = startDate ? new Date(startDate) : null;
     const end = endDate ? new Date(endDate) : null;
     if (start) start.setHours(0, 0, 0, 0);
     if (end) end.setHours(23, 59, 59, 999);
+    // console.log("Parsed Date Range:", { start, end });
 
-    return allTransactions.filter(tx => {
+    return allTransactions.filter((tx, index) => {
+      // console.log(`\nChecking transaction #${index}:`, tx);
       const typeMatch = selectedType === 'Всі' || tx.type === selectedType;
-      if (!typeMatch) return false;
+      if (!typeMatch) { /* console.log(` -> Failed Type Filter`); */ return false; }
       const accountMatch = selectedAccounts.length === 0 || selectedAccounts.includes(tx.account);
-      if (!accountMatch) return false;
+       if (!accountMatch) { /* console.log(` -> Failed Account Filter`); */ return false; }
       const categoryMatch = selectedCategories.length === 0 || selectedCategories.includes(tx.category);
-      if (!categoryMatch) return false;
-      const txDate = parseDate(tx.date);
-      if (!txDate) return false;
+       if (!categoryMatch) { /* console.log(` -> Failed Category Filter`); */ return false; }
+      const txDate = parseDate(tx.date); // Використовуємо виправлену функцію
+      // console.log(` -> Parsed txDate: ${txDate}`);
+      if (!txDate) { /* console.log(` -> Failed Date Filter (Invalid date)`); */ return false; }
       const startDateMatch = !start || txDate >= start;
-      if (!startDateMatch) return false;
+      if (!startDateMatch) { /* console.log(` -> Failed Start Date Filter`); */ return false; }
       const endDateMatch = !end || txDate <= end;
-      if (!endDateMatch) return false;
+       if (!endDateMatch) { /* console.log(` -> Failed End Date Filter`); */ return false; }
+      // console.log(" -> Transaction Passed All Filters!");
       return true;
     });
   }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedType]);
@@ -78,27 +89,22 @@ const TransactionsPage: React.FC = () => {
 
 
   // --- РЕНДЕР КОМПОНЕНТА ---
-
-  // ДОДАЄМО ЛОГ ПЕРЕД РЕНДЕРОМ ТАБЛИЦІ
-  console.log("--- Before Table Render ---");
-  console.log("isLoading:", isLoading);
-  console.log("error:", error);
-  console.log("filteredTransactions:", filteredTransactions); // Дивимось, що тут у масиві
-  console.log("filteredTransactions length:", filteredTransactions.length);
+  // console.log("--- Before Table Render ---");
+  // console.log("filteredTransactions length:", filteredTransactions.length);
 
   return (
     <div>
       <h1 className="text-xl font-semibold mb-4">Транзакції</h1>
 
-      {/* Фільтри (код без змін) */}
+      {/* Фільтри (код розмітки без змін) */}
       <div className="mb-6 p-4 border rounded bg-gray-50 space-y-4">
           {/* Перший рядок */}
-          <div className="flex flex-wrap gap-4 items-end">{/* Дати та Тип */}</div>
+          <div className="flex flex-wrap gap-4 items-end">{/* ...Дати та Тип... */}</div>
           {/* Другий рядок */}
-          <div className="flex flex-wrap gap-4 items-start">{/* Рахунки та Категорії */}</div>
+          <div className="flex flex-wrap gap-4 items-start">{/* ...Рахунки та Категорії... */}</div>
       </div>
 
-      {/* --- Таблиця транзакцій (З ТИМЧАСОВО СПРОЩЕНИМ РЕНДЕРОМ РЯДКА) --- */}
+      {/* Таблиця транзакцій (використовуємо СПРОЩЕНИЙ варіант поки що) */}
       {isLoading && <p className="mt-4">Завантаження транзакцій...</p>}
       {error && <p className="mt-4 text-red-600">Помилка завантаження: {error}</p>}
 
@@ -108,7 +114,9 @@ const TransactionsPage: React.FC = () => {
              <thead className="bg-gray-50">
                <tr>
                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Дата</th>
-                 {/* ... інші заголовки ... */}
+                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Рахунок</th>
+                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Категорія</th>
+                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Опис</th>
                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Сума</th>
                </tr>
              </thead>
@@ -116,28 +124,13 @@ const TransactionsPage: React.FC = () => {
                {filteredTransactions.length === 0 ? (
                  <tr> <td colSpan={5} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
                ) : (
-                 // Ітеруємо по filteredTransactions
                  filteredTransactions.map((tx, index) => (
-                   // ***** ТИМЧАСОВО СПРОЩЕНИЙ РЯДОК *****
+                   // ЗАЛИШАЄМО СПРОЩЕНИЙ РЯДОК ДЛЯ ТЕСТУ
                    <tr key={index} className="bg-yellow-100">
                        <td colSpan={5} className="px-4 py-2 text-center text-sm">
                            Знайдено транзакцію: {tx.date} - {tx.category} - {tx.amount}
                        </td>
                    </tr>
-                   // ***** КІНЕЦЬ СПРОЩЕНОГО РЯДКА *****
-
-                   /*
-                   // ***** ОРИГІНАЛЬНИЙ РЯДОК (Закоментовано) *****
-                   <tr key={`<span class="math-inline">\{tx\.date\}\-</span>{tx.account}-<span class="math-inline">\{tx\.amount\}\-</span>{index}`} className={`${tx.type === 'Витрата' ? 'bg-red-50 hover:bg-red-100' : 'bg-green-50 hover:bg-green-100'} transition-colors duration-150 ease-in-out`}>
-                     <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{tx.date}</td>
-                     <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.account}</td>
-                     <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.category}</td>
-                     <td className="px-4 py-2 text-sm text-gray-500">{tx.description}</td>
-                     <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-medium ${tx.type === 'Витрата' ? 'text-red-600' : 'text-green-600'}`}>
-                       {tx.type === 'Витрата' ? '-' : '+'} {formatNumber(tx.amount)} ₴
-                     </td>
-                   </tr>
-                   */
                  ))
                )}
              </tbody>
