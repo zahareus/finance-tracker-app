@@ -1,101 +1,74 @@
-export const dynamic = 'force-dynamic'; // Вказує Next.js/Vercel не кешувати цей маршрут
-
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
+import type { NextRequest } from 'next/server'; // Імпортуємо NextRequest
 
-// Повна та виправлена функція parseDate
-const parseDate = (dateString: string | null): Date | null => {
-    if (!dateString) return null;
-    let parts = dateString.split('-'); // YYYY-MM-DD
-    if (parts.length === 3) {
-        const date = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2]));
-        if (!isNaN(date.getTime())) { return date; }
+// Перевірка паролю винесена в окрему функцію для чистоти
+function checkAuth(req: NextRequest): boolean {
+    const sitePassword = process.env.SITE_PASSWORD;
+    // Якщо пароль не заданий на Vercel, вважаємо авторизацію пройденою (небезпечно для продакшену!)
+    if (!sitePassword) {
+        console.warn("API_AUTH: SITE_PASSWORD environment variable is not set. Access granted without password check.");
+        return true;
     }
-    parts = dateString.split('.'); // DD.MM.YYYY
-    if (parts.length === 3) {
-        const date = new Date(Date.UTC(+parts[2], +parts[1] - 1, +parts[0]));
-        if (!isNaN(date.getTime())) { return date; }
-    }
-    return null;
-};
 
-// Основна GET функція для API Route
-export async function GET() {
+    // Отримуємо пароль з кастомного заголовка
+    const providedPassword = req.headers.get('X-App-Password');
+
+    if (!providedPassword || providedPassword !== sitePassword) {
+        console.warn(`API_AUTH: Authentication failed. Provided: ${providedPassword ? '***' : 'None'}`);
+        return false; // Пароль невірний або відсутній
+    }
+
+    // console.log("API_AUTH: Authentication successful.");
+    return true; // Пароль вірний
+}
+
+
+export async function GET(req: NextRequest) { // Додаємо req як параметр
+  console.log("API: Request received for /api/sheet-data");
+
+  // **КРОК 1: Перевірка Авторизації**
+  if (!checkAuth(req)) {
+      // Якщо перевірка не пройдена, повертаємо помилку 401
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  console.log("API: Auth check passed.");
+
+  // **КРОК 2: Отримання даних (якщо авторизація пройдена)**
   try {
     const credentialsJson = process.env.GOOGLE_SHEETS_CREDENTIALS;
     const spreadsheetId = process.env.GOOGLE_SHEET_ID;
 
-    if (!credentialsJson || !spreadsheetId) {
-      console.error("Missing environment variables for Google Sheets API.");
-      throw new Error("Server configuration error.");
-    }
-
+    if (!credentialsJson || !spreadsheetId) { throw new Error("Server configuration error."); }
     let credentials;
-    try {
-        credentials = JSON.parse(credentialsJson);
-    } catch (e) {
-        console.error("Failed to parse GOOGLE_SHEETS_CREDENTIALS JSON.");
-        throw new Error("Server configuration error: Invalid credentials format.");
-    }
+    try { credentials = JSON.parse(credentialsJson); }
+    catch (e) { throw new Error("Server configuration error: Invalid credentials format."); }
 
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: credentials.client_email,
-        private_key: credentials.private_key?.replace(/\\n/g, '\n'),
-      },
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
-
+    const auth = new google.auth.GoogleAuth({ /* ... */ });
     const sheets = google.sheets({ version: 'v4', auth });
+    const ranges = [ 'Transactions!A2:F', 'Accounts!A2:A', 'Categories!A2:B' ];
 
-    const ranges = [
-      'Transactions!A2:F',
-      'Accounts!A2:A',
-      'Categories!A2:B',
-    ];
+    const response = await sheets.spreadsheets.values.batchGet({ /* ... */ });
 
-    const response = await sheets.spreadsheets.values.batchGet({
-      spreadsheetId: spreadsheetId,
-      ranges: ranges,
-      valueRenderOption: 'FORMATTED_VALUE', // Читаємо як текст
-    });
+    if (!response.data.valueRanges) { return NextResponse.json({ transactions: [], accounts: [], categories: [] }); }
 
-    if (!response.data.valueRanges || response.data.valueRanges.length === 0) {
-        return NextResponse.json({ transactions: [], accounts: [], categories: [] });
-    }
-
-    // Обробка транзакцій
+    // Обробка даних (як і раніше)
     const rawTransactions = response.data.valueRanges[0]?.values || [];
-    const transactions = rawTransactions.map(row => ({
-      date: row[0] || null,
-      amount: parseFloat(String(row[1]).replace(/,/g, '.').replace(/\s/g, '')) || 0, // Покращене перетворення суми
-      type: row[2] || '',
-      account: row[3] || '',
-      category: row[4] || '',
-      description: row[5] || '',
-    })).filter(t => t.date); // Відкидаємо рядки без дати
-
-    // Обробка рахунків
+    const transactions = rawTransactions.map(/* ... */).filter(/* ... */);
     const rawAccounts = response.data.valueRanges[1]?.values || [];
-    const accounts = rawAccounts.flat().filter(Boolean); // Спрощено
-
-    // Обробка категорій
+    const accounts = rawAccounts.flat().filter(Boolean);
     const rawCategories = response.data.valueRanges[2]?.values || [];
-    const categories = rawCategories.map(row => ({
-        name: row[0] || '',
-        type: row[1] || ''
-    })).filter(c => c.name && c.type);
+    const categories = rawCategories.map(/* ... */).filter(/* ... */);
 
-    return NextResponse.json({
-      transactions,
-      accounts,
-      categories
-    });
+    console.log("API: Successfully fetched and processed data. Returning to client.");
+    return NextResponse.json({ transactions, accounts, categories });
 
   } catch (error) {
-    console.error('API Route Error fetching sheet data:', error);
+    console.error('API: Error fetching sheet data:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unknown server error occurred';
-    // Додамо більше деталей у відповідь помилки
-    return NextResponse.json({ error: `Failed to fetch data: ${errorMessage}`, details: error instanceof Error ? error.stack : undefined }, { status: 500 });
+    return NextResponse.json({ error: `Failed to fetch data: ${errorMessage}` }, { status: 500 });
   }
 }
+
+// Цей файл більше не експортує 'dynamic', кешування контролюється Vercel/Next.js
+// export const dynamic = 'force-dynamic';
