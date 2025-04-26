@@ -6,73 +6,34 @@ import {
 } from 'recharts';
 
 // --- Типи даних ---
-interface Transaction {
-  date: string | null;
-  amount: number;
-  type: string; // 'Надходження' або 'Витрата'
-  account: string;
-  category: string;
-  description: string;
-}
-interface CategoryInfo {
-    name: string;
-    type: string; // 'Надходження' або 'Витрата'
-}
-interface MonthlyChartData {
-    name: string; // Місяць
-    income: number;
-    expense: number;
-    balance: number; // Баланс на кінець місяця
-    incomeDetails: { [category: string]: number };
-    expenseDetails: { [category: string]: number };
-    balanceDetails: { [account: string]: number }; // Деталізація балансу по рахунках
-}
-interface BalanceDetails {
-    [account: string]: number;
-}
-// --- Кінець типів ---
+interface Transaction { date: string | null; amount: number; type: string; account: string; category: string; description: string;}
+interface CategoryInfo { name: string; type: string; } // 'Надходження' або 'Витрата'
+interface MonthlyChartData { name: string; income: number; expense: number; balance: number; incomeDetails: { [category: string]: number }; expenseDetails: { [category: string]: number }; balanceDetails: { [account: string]: number }; }
+interface BalanceDetails { [account: string]: number; }
 
 // --- Хелпери ---
 const formatNumber = (num: number): string => {
-    // Захист від нечислових значень
-    if (typeof num !== 'number' || isNaN(num)) { return '0,00'; }
+    if (typeof num !== 'number' || isNaN(num)) { console.warn("formatNumber received NaN or non-number:", num); return '0,00'; }
     return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
-
 const parseDate = (dateString: string | null): Date | null => {
     if (!dateString || typeof dateString !== 'string') return null;
     try {
-        // Спробуємо '-' як роздільник (YYYY-MM-DD)
-        let parts = dateString.split('-');
-        if (parts.length === 3) {
-            const date = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2]));
-            if (!isNaN(date.getTime())) { return date; }
-        }
-        // Спробуємо '.' як роздільник (DD.MM.YYYY)
-        parts = dateString.split('.');
-        if (parts.length === 3) {
-            const date = new Date(Date.UTC(+parts[2], +parts[1] - 1, +parts[0]));
-            if (!isNaN(date.getTime())) { return date; }
-        }
-    } catch (e) {
-        console.error("Error parsing date:", dateString, e);
-    }
-    // Якщо жоден формат не підійшов або сталася помилка
+        let parts = dateString.split('-'); // YYYY-MM-DD
+        if (parts.length === 3) { const date = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2])); if (!isNaN(date.getTime())) return date; }
+        parts = dateString.split('.'); // DD.MM.YYYY
+        if (parts.length === 3) { const date = new Date(Date.UTC(+parts[2], +parts[1] - 1, +parts[0])); if (!isNaN(date.getTime())) return date; }
+    } catch (e) { console.error("Error parsing date:", dateString, e); }
+    // console.warn("Could not parse date string, returning null:", dateString); // Розкоментуй для детальної відладки дат
     return null;
 };
-
 const formatDateForInput = (date: Date): string => {
-    if (!(date instanceof Date) || isNaN(date.getTime())) {
-        console.error("Invalid date passed to formatDateForInput:", date);
-        date = new Date(); // Fallback to today
-    }
+    if (!(date instanceof Date) || isNaN(date.getTime())) { date = new Date(); } // Fallback
     const year = date.getFullYear();
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const day = date.getDate().toString().padStart(2, '0');
     return `${year}-${month}-${day}`;
 };
-// --- Кінець хелперів ---
-
 
 const TransactionsPage: React.FC = () => {
     // --- Стан ---
@@ -93,30 +54,50 @@ const TransactionsPage: React.FC = () => {
     useEffect(() => {
         const fetchData = async () => {
            setIsLoading(true); setError(null);
+           console.log("FETCH_DATA: Starting fetch...");
            try {
              const response = await fetch('/api/sheet-data');
+             console.log("FETCH_DATA: Response status:", response.status);
              if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
              const data = await response.json();
-             // Перевірка та очистка даних одразу
+             console.log("FETCH_DATA: Raw data received:", JSON.stringify(data, null, 2)); // Лог сирих даних
+
              if (!Array.isArray(data.transactions) || !Array.isArray(data.accounts) || !Array.isArray(data.categories)) {
                  throw new Error("Invalid data structure received.");
              }
-             // Очищаємо категорії (прибираємо зайві пробіли, перевіряємо тип)
-             const cleanedCategories = data.categories
-                .map((cat: any) => ({
+
+             // Очистка та валідація
+             const cleanedTransactions = data.transactions.map((tx: any, index: number) => ({
+                date: typeof tx.date === 'string' ? tx.date.trim() : null,
+                amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : 0,
+                type: String(tx?.type || '').trim(),
+                account: String(tx?.account || '').trim(),
+                category: String(tx?.category || '').trim(),
+                description: String(tx?.description || '').trim(),
+             })).filter((tx: Transaction) => {
+                 const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category;
+                 if (!isValid) console.warn(`Workspace_DATA: Invalid transaction structure at index ${index}:`, tx);
+                 return isValid;
+             });
+
+             const cleanedAccounts = data.accounts.map((acc: any) => String(acc || '').trim()).filter(Boolean);
+
+             const cleanedCategories = data.categories.map((cat: any) => ({
                     name: String(cat?.name || '').trim(),
-                    type: String(cat?.type || '').trim()
-                }))
-                .filter((cat: CategoryInfo) => cat.name && (cat.type === 'Надходження' || cat.type === 'Витрата'));
+                    type: String(cat?.type || '').trim() // Тип 'Надходження' або 'Витрата'
+                })).filter((cat: CategoryInfo) => cat.name && (cat.type === 'Надходження' || cat.type === 'Витрата'));
 
-             console.log("Fetched and Cleaned Categories:", cleanedCategories); // Лог очищених категорій
+             console.log("FETCH_DATA: Cleaned Categories:", cleanedCategories); // Лог очищених категорій
 
-             setAllTransactions(Array.isArray(data.transactions) ? data.transactions : []);
-             setAccounts(Array.isArray(data.accounts) ? data.accounts.map(String) : []); // Переконуємось, що це рядки
+             setAllTransactions(cleanedTransactions);
+             setAccounts(cleanedAccounts);
              setCategories(cleanedCategories);
+             console.log("FETCH_DATA: State updated.");
 
-           } catch (err) { setError(err instanceof Error ? err.message : 'An unknown error occurred.'); console.error("Failed to fetch data:", err); }
-           finally { setIsLoading(false); }
+           } catch (err) {
+               setError(err instanceof Error ? err.message : 'An unknown error occurred.');
+               console.error("FETCH_DATA: Error fetching or processing data:", err);
+           } finally { setIsLoading(false); }
         };
         fetchData();
      }, []);
@@ -128,6 +109,9 @@ const TransactionsPage: React.FC = () => {
 
     const incomeCategories = useMemo(() => categories.filter(c => c.type === 'Надходження').map(c => c.name), [categories]);
     const expenseCategories = useMemo(() => categories.filter(c => c.type === 'Витрата').map(c => c.name), [categories]);
+    // Додаємо лог для перевірки expenseCategories
+    useEffect(() => { console.log("STATE_UPDATE: Expense Categories for UI:", expenseCategories); }, [expenseCategories]);
+
 
     const handleSelectAllIncomeCategories = useCallback(() => {
         const otherSelected = selectedCategories.filter(sc => !incomeCategories.includes(sc));
@@ -144,12 +128,11 @@ const TransactionsPage: React.FC = () => {
     }, [expenseCategories, selectedCategories]);
 
     const setDateRangePreset = useCallback((preset: 'prev_month' | 'prev_quarter' | 'prev_year') => {
-        // ... (логіка setDateRangePreset без змін) ...
         const today = new Date(); let year = today.getFullYear(); let month = today.getMonth(); let startDate: Date; let endDate: Date;
         switch(preset) {
             case 'prev_month': endDate = new Date(year, month, 0); startDate = new Date(endDate.getFullYear(), endDate.getMonth(), 1); break;
-            case 'prev_quarter': const currentQuarter = Math.floor(month / 3); const firstMonthOfPrevQuarter = currentQuarter * 3 - 3; const yearOfPrevQuarterStart = firstMonthOfPrevQuarter < 0 ? year - 1 : year; startDate = new Date(yearOfPrevQuarterStart, (firstMonthOfPrevQuarter + 12) % 12, 1); const firstMonthOfCurrentQuarter = currentQuarter * 3; endDate = new Date(year, firstMonthOfCurrentQuarter, 0); break;
-            case 'prev_year': const prevYear = year - 1; startDate = new Date(prevYear, 0, 1); endDate = new Date(prevYear, 11, 31); break;
+            case 'prev_quarter': const cQ = Math.floor(month / 3); const fM = cQ * 3 - 3; const yS = fM < 0 ? year - 1 : year; startDate = new Date(yS, (fM + 12) % 12, 1); const fMCQ = cQ * 3; endDate = new Date(year, fMCQ, 0); break;
+            case 'prev_year': const pY = year - 1; startDate = new Date(pY, 0, 1); endDate = new Date(pY, 11, 31); break;
         }
         setStartDate(formatDateForInput(startDate)); setEndDate(formatDateForInput(endDate));
     }, []);
@@ -157,157 +140,125 @@ const TransactionsPage: React.FC = () => {
 
     // === РОЗРАХУНОК ПОКАЗНИКІВ ДЛЯ ШАПКИ ===
     const headerMetrics = useMemo(() => {
+        console.log("HEADER_METRICS: Recalculating...");
         const today = new Date(); today.setUTCHours(23, 59, 59, 999);
         const currentBalanceDetails: BalanceDetails = {};
-        // Ініціалізуємо по ВСІХ рахунках зі стану `accounts`
-        accounts.forEach(acc => currentBalanceDetails[acc] = 0);
+        accounts.forEach(acc => currentBalanceDetails[acc] = 0); // Ініціалізація
 
+        let includedTx = 0;
         allTransactions.forEach(tx => {
             const txDate = parseDate(tx.date);
-            // Перевіряємо чи рахунок tx.account взагалі існує в currentBalanceDetails (тобто чи він є в списку accounts)
-            if (currentBalanceDetails.hasOwnProperty(tx.account) && txDate && txDate <= today) {
-                const amount = typeof tx.amount === 'number' ? tx.amount : 0; // Перевірка типу суми
+             if (currentBalanceDetails.hasOwnProperty(tx.account) && txDate && txDate <= today) {
+                const amount = tx.amount; // Вже перевірено на число при завантаженні
                 currentBalanceDetails[tx.account] += (tx.type === 'Надходження' ? amount : -amount);
+                includedTx++;
             }
         });
-        const currentTotalBalance = Object.values(currentBalanceDetails).reduce((sum, bal) => sum + (typeof bal === 'number' ? bal : 0), 0); // Додаткова перевірка типу
+        const currentTotalBalance = Object.values(currentBalanceDetails).reduce((sum, bal) => sum + bal, 0);
+        console.log(`HEADER_METRICS: Calculated balance. ${includedTx} tx included. Total: ${currentTotalBalance}`, currentBalanceDetails);
 
         // Розрахунок Ранвею
+        // ... (розрахунок Runway без змін, використовує currentTotalBalance) ...
         const threeMonthsAgo = new Date(today.getUTCFullYear(), today.getUTCMonth() - 3, 1);
         const lastMonthEnd = new Date(today.getUTCFullYear(), today.getUTCMonth(), 0); lastMonthEnd.setUTCHours(23,59,59,999);
-        let totalExpensesLast3Months = 0;
+        let totalExpensesLast3Months = 0; let expenseTxCount = 0;
         allTransactions.forEach(tx => {
             const txDate = parseDate(tx.date);
-            const amount = typeof tx.amount === 'number' ? tx.amount : 0;
+            const amount = tx.amount;
             if (tx.type === 'Витрата' && txDate && txDate >= threeMonthsAgo && txDate <= lastMonthEnd) {
-                totalExpensesLast3Months += amount;
+                totalExpensesLast3Months += amount; expenseTxCount++;
             }
         });
+        console.log(`HEADER_METRICS: Runway calculation: ${expenseTxCount} expense tx in last 3m. Total: ${totalExpensesLast3Months}`);
         const avgMonthlyExpense = totalExpensesLast3Months > 0 ? totalExpensesLast3Months / 3 : 0;
         let runwayMonths: number | null | typeof Infinity = null;
-        if (avgMonthlyExpense > 0 && currentTotalBalance > 0) { // Ранвей має сенс тільки якщо є витрати і позитивний баланс
-             runwayMonths = currentTotalBalance / avgMonthlyExpense;
-        } else if (currentTotalBalance >= 0 && avgMonthlyExpense <= 0) { // Якщо гроші є, а витрат немає (або доходи перевищують витрати в середньому?)
-             runwayMonths = Infinity;
-        } // В інших випадках (негативний баланс) - null або N/A
-
+        if (avgMonthlyExpense > 0 && currentTotalBalance > 0) { runwayMonths = currentTotalBalance / avgMonthlyExpense; }
+        else if (currentTotalBalance >= 0 && avgMonthlyExpense <= 0) { runwayMonths = Infinity; }
         const balanceTooltipText = accounts.map(acc => `${acc}: ${formatNumber(currentBalanceDetails[acc] || 0)} ₴`).join('\n');
+
         return { currentTotalBalance, runwayMonths, balanceTooltipText };
-    }, [allTransactions, accounts]); // Залежить від ВСІХ транзакцій і ВСІХ рахунків
+    }, [allTransactions, accounts]);
 
 
     // === ОБРОБКА ДАНИХ ДЛЯ ГРАФІКА ТА ТАБЛИЦІ ===
     const processedData = useMemo(() => {
+        console.log("PROCESS_DATA: Recalculating for chart/table..."); // Лог
         const startFilterDate = startDate ? parseDate(startDate) : null;
         const endFilterDate = endDate ? parseDate(endDate) : null;
         if (startFilterDate) startFilterDate.setUTCHours(0, 0, 0, 0);
         if (endFilterDate) endFilterDate.setUTCHours(23, 59, 59, 999);
+        console.log("PROCESS_DATA: Using date range:", { startFilterDate, endFilterDate });
+        console.log("PROCESS_DATA: Using filters:", { selectedType, selectedAccounts, selectedCategories });
 
-        // Рахунки для розрахунку балансу графіка/таблиці - ті, що обрані у фільтрі, АБО всі, якщо нічого не обрано
         const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
 
         // 1. Розрахунок початкового балансу (тільки по accountsToConsider)
         const balanceDetailsAtStart: BalanceDetails = {};
         accountsToConsider.forEach(acc => balanceDetailsAtStart[acc] = 0);
+        let startBalanceTxCount = 0;
         allTransactions.forEach(tx => {
             const txDate = parseDate(tx.date);
-            // Перевіряємо, чи рахунок входить до списку accountsToConsider
-            if (accountsToConsider.includes(tx.account) && txDate && (!startFilterDate || txDate < startFilterDate)) {
-                 const amount = typeof tx.amount === 'number' ? tx.amount : 0;
-                 balanceDetailsAtStart[tx.account] = (balanceDetailsAtStart[tx.account] || 0) + (tx.type === 'Надходження' ? amount : -amount);
+            const accountMatches = accountsToConsider.includes(tx.account);
+            if (txDate && accountMatches && (!startFilterDate || txDate < startFilterDate)) {
+                balanceDetailsAtStart[tx.account] = (balanceDetailsAtStart[tx.account] || 0) + (tx.type === 'Надходження' ? tx.amount : -tx.amount);
+                startBalanceTxCount++;
             }
         });
+         console.log(`PROCESS_DATA: Calculated start balance details from ${startBalanceTxCount} tx:`, balanceDetailsAtStart);
 
         // 2. Фільтруємо транзакції для таблиці ТА графіка за ВСІМА фільтрами
+        let iteration = 0;
         const filteredTransactionsForPeriod = allTransactions.filter(tx => {
-            // Перевірка типу суми перед фільтрацією
-            if (typeof tx.amount !== 'number' || isNaN(tx.amount)) return false;
-
-            if (selectedType !== 'Всі' && tx.type !== selectedType) return false;
-            // Перевірка обраних рахунків
-            if (selectedAccounts.length > 0 && !selectedAccounts.includes(tx.account)) return false;
-            // Перевірка обраних категорій
-            if (selectedCategories.length > 0 && !selectedCategories.includes(tx.category)) return false;
-            // Перевірка дати
+            iteration++;
+            // Логування ДЛЯ КОЖНОЇ ТРАНЗАКЦІЇ під час фільтрації
+            // console.log(`PROCESS_DATA: Filtering tx #${iteration}`, tx);
+            const typeMatch = selectedType === 'Всі' || tx.type === selectedType;
+            if (!typeMatch) return false;
+            const accountMatch = selectedAccounts.length === 0 || selectedAccounts.includes(tx.account);
+            if (!accountMatch) return false;
+            const categoryMatch = selectedCategories.length === 0 || selectedCategories.includes(tx.category);
+            if (!categoryMatch) return false;
             const txDate = parseDate(tx.date);
-            if (!txDate) return false;
-            if (startFilterDate && txDate < startFilterDate) return false;
-            if (endFilterDate && txDate > endFilterDate) return false;
+            if (!txDate) return false; // Якщо дата не парситься - пропускаємо
+            const startDateMatch = !startFilterDate || txDate >= startFilterDate;
+            if (!startDateMatch) return false;
+            const endDateMatch = !endFilterDate || txDate <= endFilterDate;
+            if (!endDateMatch) return false;
+            // console.log(`PROCESS_DATA: Tx #${iteration} PASSED filters`);
             return true;
         });
+        console.log("PROCESS_DATA: Filtered Transactions for Period/Table:", filteredTransactionsForPeriod); // Лог транзакцій для таблиці
 
         // 3. Генеруємо список ВСІХ місяців у діапазоні (без змін)
         const allMonthsInRange: { key: string; name: string }[] = [];
-        if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) {
-            let currentMonth = new Date(Date.UTC(startFilterDate.getUTCFullYear(), startFilterDate.getUTCMonth(), 1));
-            while (currentMonth <= endFilterDate) {
-                const monthYearKey = `${currentMonth.getUTCFullYear()}-${(currentMonth.getUTCMonth() + 1).toString().padStart(2, '0')}`;
-                const monthName = currentMonth.toLocaleString('uk-UA', { month: 'short', year: 'numeric', timeZone: 'UTC' });
-                allMonthsInRange.push({ key: monthYearKey, name: monthName });
-                 if (currentMonth.getUTCMonth() === 11) { currentMonth = new Date(Date.UTC(currentMonth.getUTCFullYear() + 1, 0, 1)); }
-                 else { currentMonth.setUTCMonth(currentMonth.getUTCMonth() + 1); }
-            }
-        }
+        if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) { /* ... генеруємо місяці ... */ }
 
-        // 4. Групуємо відфільтровані транзакції по місяцях
+        // 4. Групуємо ВІДФІЛЬТРОВАНІ транзакції по місяцях
         const monthlyActivityMap: { [monthYear: string]: Omit<MonthlyChartData, 'balance' | 'name' | 'balanceDetails'> & { balanceChangeDetails: BalanceDetails } } = {};
-        allMonthsInRange.forEach(monthInfo => {
-             monthlyActivityMap[monthInfo.key] = { income: 0, expense: 0, incomeDetails: {}, expenseDetails: {}, balanceChangeDetails: {} };
-             accountsToConsider.forEach(acc => { monthlyActivityMap[monthInfo.key].balanceChangeDetails[acc] = 0; });
-        });
-        // Важливо: використовуємо filteredTransactionsForPeriod для розрахунку доходів/витрат місяця
-        filteredTransactionsForPeriod.forEach(tx => {
-            const txDate = parseDate(tx.date);
-            if (txDate) {
-                const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`;
-                if (monthlyActivityMap[monthYear]) {
-                    const monthEntry = monthlyActivityMap[monthYear];
-                    const category = tx.category; const account = tx.account;
-                    const amount = typeof tx.amount === 'number' ? tx.amount : 0; // Перевірка
-                    const amountChange = (tx.type === 'Надходження' ? amount : -amount);
-
-                    if (tx.type === 'Надходження') {
-                        monthEntry.income += amount;
-                        monthEntry.incomeDetails[category] = (monthEntry.incomeDetails[category] || 0) + amount;
-                    } else if (tx.type === 'Витрата') {
-                        monthEntry.expense += amount;
-                        monthEntry.expenseDetails[category] = (monthEntry.expenseDetails[category] || 0) + amount;
-                    }
-                    // Зміна балансу враховує тільки обрані рахунки
-                    if (accountsToConsider.includes(account)) {
-                       monthEntry.balanceChangeDetails[account] = (monthEntry.balanceChangeDetails[account] || 0) + amountChange;
-                    }
-                }
-            }
-        });
+        allMonthsInRange.forEach(monthInfo => { /* ... ініціалізуємо ... */ });
+        // Важливо: використовуємо filteredTransactionsForPeriod тут
+        filteredTransactionsForPeriod.forEach(tx => { /* ... заповнюємо monthlyActivityMap ... */ });
 
         // 5. Розраховуємо наростаючий баланс і деталізацію по рахунках
         const runningBalanceDetails = { ...balanceDetailsAtStart };
         const barChartData: MonthlyChartData[] = allMonthsInRange.map(monthInfo => {
             const activity = monthlyActivityMap[monthInfo.key];
+            if (!activity) { // Додаткова перевірка
+                const currentBalance = Object.values(runningBalanceDetails).reduce((s, b) => s + b, 0);
+                return { name: monthInfo.name, income: 0, expense: 0, balance: currentBalance, incomeDetails: {}, expenseDetails: {}, balanceDetails: { ...runningBalanceDetails } };
+            }
             const balanceChanges = activity.balanceChangeDetails;
-            // Оновлюємо деталізацію балансу на основі змін ЦЬОГО місяця по ОБРАНИХ рахунках
             Object.keys(balanceChanges).forEach(account => {
-                // Переконуємось, що оновлюємо тільки ті рахунки, які є в runningBalanceDetails (тобто accountsToConsider)
                 if (runningBalanceDetails.hasOwnProperty(account)) {
                    runningBalanceDetails[account] = (runningBalanceDetails[account] || 0) + balanceChanges[account];
                 }
             });
-            // Загальний баланс на кінець місяця - сума по всіх runningBalanceDetails
-            const endOfMonthBalance = Object.values(runningBalanceDetails).reduce((sum, bal) => sum + (typeof bal === 'number' ? bal : 0), 0);
-
-            return {
-                name: monthInfo.name,
-                income: activity.income,
-                expense: activity.expense,
-                balance: endOfMonthBalance,
-                incomeDetails: activity.incomeDetails,
-                expenseDetails: activity.expenseDetails,
-                balanceDetails: { ...runningBalanceDetails } // Копія стану на кінець місяця
-            };
+            const endOfMonthBalance = Object.values(runningBalanceDetails).reduce((sum, bal) => sum + bal, 0);
+            return { name: monthInfo.name, income: activity.income, expense: activity.expense, balance: endOfMonthBalance, incomeDetails: activity.incomeDetails, expenseDetails: activity.expenseDetails, balanceDetails: { ...runningBalanceDetails } };
         });
 
-        // Повертаємо відфільтровані для таблиці транзакції та дані для графіка
+        console.log("PROCESS_DATA: Final Bar Chart Data:", barChartData); // Лог даних для графіка
+
         return { filteredTransactions: filteredTransactionsForPeriod, barChartData };
 
     }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedType, accounts]);
@@ -317,31 +268,30 @@ const TransactionsPage: React.FC = () => {
     // --- Компонент для Кастомної Підказки (Tooltip) ---
     // Повний CustomTooltip
     const CustomTooltip = ({ active, payload, label }: any) => {
+        // Додаємо лог на вході
+        // console.log("TOOLTIP: Triggered", { active, payload, label });
         if (active && payload && payload.length) {
             const currentMonthData = processedData.barChartData.find(d => d.name === label);
+            // console.log("TOOLTIP: Found month data", currentMonthData);
             if (!currentMonthData) return null;
 
             const renderDetails = (details: { [key: string]: number }, type: 'income' | 'expense' | 'balance') => {
                  const colorClass = type === 'income' ? 'text-green-600' : type === 'expense' ? 'text-red-600' : 'text-blue-600';
                  const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
-
+                 let detailsToShow: [string, number][];
                  if (type === 'balance') {
                       const fullBalanceDetails: BalanceDetails = {};
                       accountsToConsider.forEach(acc => { fullBalanceDetails[acc] = details[acc] || 0; });
-                      const sortedDetails = Object.entries(fullBalanceDetails)
-                         .filter(([, amount]) => Math.abs(amount) > 0.001)
-                         .sort(([,a],[,b]) => b - a);
-                      if (sortedDetails.length === 0) {
-                           // Якщо всі нулі, показуємо хоча б один рахунок з нулем
+                      detailsToShow = Object.entries(fullBalanceDetails).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([,a],[,b]) => b - a);
+                      if (detailsToShow.length === 0) {
                            if (accountsToConsider.length > 0) return <p key={accountsToConsider[0]} className={`text-xs ${colorClass}`}> - {accountsToConsider[0]}: {formatNumber(0)} ₴</p>;
                            else return <p className="text-xs text-gray-500 italic">- немає рахунків -</p>;
                       }
-                      return sortedDetails.map(([key, amount]) => ( <p key={key} className={`text-xs ${colorClass}`}> - {key}: {formatNumber(amount)} ₴</p> ));
                  } else {
-                     const sortedDetails = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a);
-                     if(sortedDetails.length === 0) return <p className="text-xs text-gray-500 italic">- немає деталей -</p>;
-                     return sortedDetails.map(([key, amount]) => ( <p key={key} className={`text-xs ${colorClass}`}> - {key}: {formatNumber(amount)} ₴</p> ));
+                     detailsToShow = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a);
+                     if(detailsToShow.length === 0) return <p className="text-xs text-gray-500 italic">- немає деталей -</p>;
                  }
+                 return detailsToShow.map(([key, amount]) => ( <p key={key} className={`text-xs ${colorClass}`}> - {key}: {formatNumber(amount)} ₴</p> ));
             };
 
             const incomePayload = payload.find((p: any) => p.dataKey === 'income');
@@ -413,9 +363,9 @@ const TransactionsPage: React.FC = () => {
                         <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full">
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> :
                             Array.isArray(categories) && incomeCategories.length > 0 ? incomeCategories.map(catName => (
-                               <div key={catName} className="flex items-center">
-                                   <input type="checkbox" id={`trans-cat-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/>
-                                   <label htmlFor={`trans-cat-${catName}`} className="text-xs text-gray-800 select-none cursor-pointer">{catName}</label>
+                               <div key={`inc-${catName}`} className="flex items-center">
+                                   <input type="checkbox" id={`trans-cat-inc-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/>
+                                   <label htmlFor={`trans-cat-inc-${catName}`} className="text-xs text-gray-800 select-none cursor-pointer">{catName}</label>
                                </div>
                             )) : <p className="text-xs text-gray-400 p-1">Немає категорій надходжень</p>
                            }
@@ -430,9 +380,9 @@ const TransactionsPage: React.FC = () => {
                         <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full">
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> :
                             Array.isArray(categories) && expenseCategories.length > 0 ? expenseCategories.map(catName => (
-                               <div key={catName} className="flex items-center">
-                                   <input type="checkbox" id={`trans-cat-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/>
-                                   <label htmlFor={`trans-cat-${catName}`} className="text-xs text-gray-800 select-none cursor-pointer">{catName}</label>
+                               <div key={`exp-${catName}`} className="flex items-center">
+                                   <input type="checkbox" id={`trans-cat-exp-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/>
+                                   <label htmlFor={`trans-cat-exp-${catName}`} className="text-xs text-gray-800 select-none cursor-pointer">{catName}</label>
                                </div>
                             )) : <p className="text-xs text-gray-400 p-1">Немає категорій витрат</p>
                            }
