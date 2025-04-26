@@ -1,62 +1,52 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
-// Ім'я користувача та пароль беремо з змінних середовища
-const username = process.env.SITE_USER; // Змінив назву змінної для ясності
-const password = process.env.SITE_PASSWORD; // Змінив назву змінної для ясності
+const username = process.env.SITE_USER;
+const password = process.env.SITE_PASSWORD;
 
 export function middleware(req: NextRequest) {
-  // Перевіряємо, чи встановлені логін і пароль в змінних середовища
+  // ЛОГ 1: Перевіряємо, чи middleware взагалі запустився для цього запиту
+  console.log(`>>> MIDDLEWARE: Request received for path: ${req.nextUrl.pathname}`);
+
   if (!username || !password) {
-    console.warn('SITE_USER or SITE_PASSWORD environment variables are not set. Protection is disabled.');
-    // Якщо ні, пропускаємо захист (можливо, для локальної розробки)
+    console.warn('MIDDLEWARE: SITE_USER or SITE_PASSWORD missing. Protection disabled.');
     return NextResponse.next();
   }
 
-  // Перевіряємо заголовок авторизації
   const basicAuth = req.headers.get('authorization');
+  console.log(`MIDDLEWARE: Authorization header: ${basicAuth ? 'Present' : 'Missing'}`); // ЛОГ 2
 
   if (basicAuth) {
     try {
-        // Витягуємо дані з 'Basic base64(user:pass)'
         const authValue = basicAuth.split(' ')[1];
-        // Декодуємо Base64. У Edge Runtime (де працює Middleware) може не бути atob
-        // Використовуємо Buffer
+        if (!authValue) { throw new Error('Invalid auth header value'); }
         const decodedAuthValue = Buffer.from(authValue, 'base64').toString('utf-8');
         const [user, pwd] = decodedAuthValue.split(':');
 
-        // Порівнюємо з еталонними значеннями
         if (user === username && pwd === password) {
-          // Якщо все вірно, дозволяємо доступ
-          return NextResponse.next();
+          console.log(`MIDDLEWARE: Auth successful for user ${user}. Allowing access.`); // ЛОГ 3
+          return NextResponse.next(); // Доступ дозволено
+        } else {
+            console.warn(`MIDDLEWARE: Auth failed. Incorrect user/pass provided.`); // ЛОГ 4
         }
      } catch (e) {
-         console.error('Error decoding basic auth header:', e);
-         // Якщо помилка декодування, вважаємо авторизацію недійсною
+         console.error('MIDDLEWARE: Error decoding basic auth header:', e);
      }
   }
 
-  // Якщо авторизація не пройдена або відсутня, запитуємо її
-  // Повертаємо статус 401 та заголовок WWW-Authenticate
+  // Якщо дійшли сюди - авторизація не пройдена або відсутня
+  console.log(`MIDDLEWARE: Auth failed or missing. Returning 401 for path: ${req.nextUrl.pathname}`); // ЛОГ 5
    return new NextResponse('Authentication required.', {
        status: 401,
        headers: {
-         'WWW-Authenticate': 'Basic realm="Secure Area"', // Це змусить браузер показати вікно вводу
+         'WWW-Authenticate': 'Basic realm="Secure Area"',
        },
    });
 }
 
-// Конфігурація: Застосовуємо Middleware до всіх шляхів,
-// крім системних файлів Next.js та API роутів (якщо вони є)
+// Конфігурація matcher залишається без змін
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     */
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+     '/((?!api|_next/static|_next/image|favicon.ico|logo.png).*)',
   ],
 }
