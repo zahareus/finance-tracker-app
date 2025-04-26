@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+import Link from 'next/link'; // Імпортуємо Link для навігації
 import './globals.css';
-import Sidebar from '@/components/Sidebar'; // Імпортуємо наш Sidebar
+import Sidebar from '@/components/Sidebar';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -11,20 +12,34 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({
-  children, // 'children' - це вміст поточної сторінки (Транзакції або Звіти)
+  children,
 }: {
   children: React.ReactNode;
 }) {
   return (
     <html lang="uk">
-      <body className={`${inter.className} flex h-screen overflow-hidden`}> {/* Додаємо flex та h-screen */}
+      <body className={`${inter.className} flex h-screen overflow-hidden bg-white`}> {/* Змінив фон на білий */}
         {/* Бічна панель */}
         <Sidebar />
 
-        {/* Основний контент сторінки */}
-        <main className="flex-1 overflow-y-auto p-6"> {/* flex-1 займає решту місця, додаємо скрол та відступи */}
-          {children}
-        </main>
+        {/* Основний контент з хедером для навігації */}
+        <div className="flex-1 flex flex-col overflow-hidden"> {/* Обгортка для хедера і контенту */}
+          {/* Хедер з Навігацією */}
+          <header className="bg-white border-b border-gray-200 px-6 py-3">
+            <nav className="flex space-x-4">
+              {/* Додаємо посилання на Головну (Огляд), Транзакції та Звіти */}
+              {/* (Головна '/ ' поки показує заглушку, потім можна змінити) */}
+               {/* <Link href="/" className="text-gray-600 hover:text-gray-900">Огляд</Link> */}
+              <Link href="/transactions" className="text-gray-600 hover:text-gray-900 font-medium">Транзакції</Link>
+              <Link href="/reports" className="text-gray-600 hover:text-gray-900 font-medium">Звіти</Link>
+            </nav>
+          </header>
+
+          {/* Основний контент сторінки */}
+          <main className="flex-1 overflow-y-auto p-6 bg-gray-50"> {/* Додав фон для основної зони */}
+            {children}
+          </main>
+        </div>
       </body>
     </html>
   );
