@@ -1,20 +1,21 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-const username = process.env.SITE_USER;
-const password = process.env.SITE_PASSWORD;
-
 export function middleware(req: NextRequest) {
-  // ЛОГ 1: Перевіряємо, чи middleware взагалі запустився для цього запиту
-  console.log(`>>> MIDDLEWARE: Request received for path: ${req.nextUrl.pathname}`);
+  // ЛОГ 1: Перевіряємо запуск і змінні середовища
+  console.log(`>>> MIDDLEWARE: Request for path: ${req.nextUrl.pathname}`);
+  const username = process.env.SITE_USER;
+  const password = process.env.SITE_PASSWORD;
+  console.log(`MIDDLEWARE: Read ENV VARS - User: ${username ? 'SET' : 'NOT SET'}, Pass: ${password ? 'SET' : 'NOT SET'}`);
 
+  // Якщо змінні не встановлені, просто виходимо (для безпеки логування)
   if (!username || !password) {
     console.warn('MIDDLEWARE: SITE_USER or SITE_PASSWORD missing. Protection disabled.');
     return NextResponse.next();
   }
 
   const basicAuth = req.headers.get('authorization');
-  console.log(`MIDDLEWARE: Authorization header: ${basicAuth ? 'Present' : 'Missing'}`); // ЛОГ 2
+  console.log(`MIDDLEWARE: Auth header: ${basicAuth ? 'Present' : 'Missing'}`);
 
   if (basicAuth) {
     try {
@@ -24,18 +25,18 @@ export function middleware(req: NextRequest) {
         const [user, pwd] = decodedAuthValue.split(':');
 
         if (user === username && pwd === password) {
-          console.log(`MIDDLEWARE: Auth successful for user ${user}. Allowing access.`); // ЛОГ 3
-          return NextResponse.next(); // Доступ дозволено
+          console.log(`MIDDLEWARE: Auth successful for user ${user}.`);
+          return NextResponse.next();
         } else {
-            console.warn(`MIDDLEWARE: Auth failed. Incorrect user/pass provided.`); // ЛОГ 4
+            console.warn(`MIDDLEWARE: Auth failed. Incorrect user/pass.`);
         }
      } catch (e) {
-         console.error('MIDDLEWARE: Error decoding basic auth header:', e);
+         console.error('MIDDLEWARE: Error decoding basic auth:', e);
      }
   }
 
-  // Якщо дійшли сюди - авторизація не пройдена або відсутня
-  console.log(`MIDDLEWARE: Auth failed or missing. Returning 401 for path: ${req.nextUrl.pathname}`); // ЛОГ 5
+  // Запит авторизації
+  console.log(`MIDDLEWARE: Returning 401 for path: ${req.nextUrl.pathname}`);
    return new NextResponse('Authentication required.', {
        status: 401,
        headers: {
@@ -44,9 +45,7 @@ export function middleware(req: NextRequest) {
    });
 }
 
-// Конфігурація matcher залишається без змін
+// **СПРОЩЕНИЙ MATCHER:** Застосовуємо ТІЛЬКИ до головної сторінки
 export const config = {
-  matcher: [
-     '/((?!api|_next/static|_next/image|favicon.ico|logo.png).*)',
-  ],
+  matcher: ['/'], // Застосовуємо тільки до кореневого шляху
 }
