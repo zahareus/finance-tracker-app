@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import Link from 'next/link'; // Імпортуємо Link для навігації
+import Link from 'next/link'; // Залишаємо Link, хоча посилання зараз одне
 import './globals.css';
-import Sidebar from '@/components/Sidebar';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -18,27 +17,26 @@ export default function RootLayout({
 }) {
   return (
     <html lang="uk">
-      <body className={`${inter.className} flex h-screen overflow-hidden bg-white`}> {/* Змінив фон на білий */}
-        {/* Бічна панель */}
-        <Sidebar />
+      {/* Прибрали flex з body */}
+      <body className={`${inter.className} bg-gray-100`}> {/* Змінив фон для контрасту */}
+        {/* Простий Хедер (можна стилізувати краще) */}
+        <header className="bg-white shadow sticky top-0 z-10">
+          <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-12 flex items-center justify-between">
+             {/* Назва або лого */}
+             <div className="flex-shrink-0">
+                <Link href="/transactions" className="text-lg font-bold text-gray-800">
+                    Finance Tracker
+                </Link>
+             </div>
+             {/* Можна додати інші елементи хедера праворуч пізніше */}
+          </nav>
+        </header>
 
-        {/* Основний контент з хедером для навігації */}
-        <div className="flex-1 flex flex-col overflow-hidden"> {/* Обгортка для хедера і контенту */}
-          {/* Хедер з Навігацією */}
-          <header className="bg-white border-b border-gray-200 px-6 py-3">
-            <nav className="flex space-x-4">
-              {/* Додаємо посилання на Головну (Огляд), Транзакції та Звіти */}
-              {/* (Головна '/ ' поки показує заглушку, потім можна змінити) */}
-               {/* <Link href="/" className="text-gray-600 hover:text-gray-900">Огляд</Link> */}
-              <Link href="/transactions" className="text-gray-600 hover:text-gray-900 font-medium">Транзакції</Link>
-            </nav>
-          </header>
-
-          {/* Основний контент сторінки */}
-          <main className="flex-1 overflow-y-auto p-6 bg-gray-50"> {/* Додав фон для основної зони */}
-            {children}
-          </main>
-        </div>
+        {/* Основний контент сторінки */}
+        {/* Додаємо контейнер з максимальной шириною та відступами */}
+        <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+          {children}
+        </main>
       </body>
     </html>
   );
