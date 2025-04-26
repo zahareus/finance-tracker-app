@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // reactStrictMode: true, // Можна увімкнути при потребі
+  // reactStrictMode: true,
+  // Додаємо просто коментар, щоб змінити файл
 };
 
 export default nextConfig;
