@@ -6,16 +6,38 @@ import {
 } from 'recharts';
 
 // --- Типи даних ---
-interface Transaction { date: string | null; amount: number; type: string; account: string; category: string; description: string;}
-interface CategoryInfo { name: string; type: string; } // 'Надходження' або 'Витрата'
-interface MonthlyChartData { name: string; income: number; expense: number; balance: number; incomeDetails: { [category: string]: number }; expenseDetails: { [category: string]: number }; balanceDetails: { [account: string]: number }; }
-interface BalanceDetails { [account: string]: number; }
+interface Transaction {
+  date: string | null;
+  amount: number;
+  type: string; // 'Надходження' або 'Витрата'
+  account: string;
+  category: string;
+  description: string;
+}
+interface CategoryInfo {
+    name: string;
+    type: string; // 'Надходження' або 'Витрата'
+}
+interface MonthlyChartData {
+    name: string; // Місяць
+    income: number;
+    expense: number;
+    balance: number; // Баланс на кінець місяця
+    incomeDetails: { [category: string]: number };
+    expenseDetails: { [category: string]: number };
+    balanceDetails: { [account: string]: number }; // Деталізація балансу по рахунках
+}
+interface BalanceDetails {
+    [account: string]: number;
+}
+// --- Кінець типів ---
 
 // --- Хелпери ---
 const formatNumber = (num: number): string => {
-    if (typeof num !== 'number' || isNaN(num)) { console.warn("formatNumber received NaN or non-number:", num); return '0,00'; }
+    if (typeof num !== 'number' || isNaN(num)) { return '0,00'; }
     return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
+
 const parseDate = (dateString: string | null): Date | null => {
     if (!dateString || typeof dateString !== 'string') return null;
     try {
@@ -24,16 +46,18 @@ const parseDate = (dateString: string | null): Date | null => {
         parts = dateString.split('.'); // DD.MM.YYYY
         if (parts.length === 3) { const date = new Date(Date.UTC(+parts[2], +parts[1] - 1, +parts[0])); if (!isNaN(date.getTime())) return date; }
     } catch (e) { console.error("Error parsing date:", dateString, e); }
-    // console.warn("Could not parse date string, returning null:", dateString); // Розкоментуй для детальної відладки дат
     return null;
 };
+
 const formatDateForInput = (date: Date): string => {
-    if (!(date instanceof Date) || isNaN(date.getTime())) { date = new Date(); } // Fallback
+    if (!(date instanceof Date) || isNaN(date.getTime())) { date = new Date(); }
     const year = date.getFullYear();
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const day = date.getDate().toString().padStart(2, '0');
     return `${year}-${month}-${day}`;
 };
+// --- Кінець хелперів ---
+
 
 const TransactionsPage: React.FC = () => {
     // --- Стан ---
@@ -54,29 +78,25 @@ const TransactionsPage: React.FC = () => {
     useEffect(() => {
         const fetchData = async () => {
            setIsLoading(true); setError(null);
-           console.log("FETCH_DATA: Starting fetch...");
            try {
              const response = await fetch('/api/sheet-data');
-             console.log("FETCH_DATA: Response status:", response.status);
              if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
              const data = await response.json();
-             console.log("FETCH_DATA: Raw data received:", JSON.stringify(data, null, 2)); // Лог сирих даних
+             if (!Array.isArray(data.transactions) || !Array.isArray(data.accounts) || !Array.isArray(data.categories)) { throw new Error("Invalid data structure."); }
 
-             if (!Array.isArray(data.transactions) || !Array.isArray(data.accounts) || !Array.isArray(data.categories)) {
-                 throw new Error("Invalid data structure received.");
-             }
-
-             // Очистка та валідація
-             const cleanedTransactions = data.transactions.map((tx: any, index: number) => ({
+             // Очистка та валідація транзакцій
+             const cleanedTransactions = data.transactions.map((tx: any /*, index: number*/) => ({ // index тут не потрібен, якщо не використовується в map
                 date: typeof tx.date === 'string' ? tx.date.trim() : null,
-                amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : 0,
+                amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount).replace(/,/g, '.').replace(/\s/g, '')) || 0, // Додав parseFloat тут теж
                 type: String(tx?.type || '').trim(),
                 account: String(tx?.account || '').trim(),
                 category: String(tx?.category || '').trim(),
                 description: String(tx?.description || '').trim(),
-             })).filter((tx: Transaction) => {
-                 const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category;
-                 if (!isValid) console.warn(`Workspace_DATA: Invalid transaction structure at index ${index}:`, tx);
+             }))
+             // ВИПРАВЛЕНО: Додаємо параметр index до filter callback
+             .filter((tx: Transaction, index: number) => {
+                 const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount);
+                 if (!isValid) console.warn(`Workspace_DATA: Invalid transaction structure at index ${index}:`, tx); // Тепер index доступний
                  return isValid;
              });
 
@@ -84,20 +104,17 @@ const TransactionsPage: React.FC = () => {
 
              const cleanedCategories = data.categories.map((cat: any) => ({
                     name: String(cat?.name || '').trim(),
-                    type: String(cat?.type || '').trim() // Тип 'Надходження' або 'Витрата'
+                    type: String(cat?.type || '').trim()
                 })).filter((cat: CategoryInfo) => cat.name && (cat.type === 'Надходження' || cat.type === 'Витрата'));
 
-             console.log("FETCH_DATA: Cleaned Categories:", cleanedCategories); // Лог очищених категорій
+             console.log("Fetched Cleaned Categories:", cleanedCategories); // Перевіряємо категорії
 
              setAllTransactions(cleanedTransactions);
              setAccounts(cleanedAccounts);
              setCategories(cleanedCategories);
-             console.log("FETCH_DATA: State updated.");
 
-           } catch (err) {
-               setError(err instanceof Error ? err.message : 'An unknown error occurred.');
-               console.error("FETCH_DATA: Error fetching or processing data:", err);
-           } finally { setIsLoading(false); }
+           } catch (err) { setError(err instanceof Error ? err.message : 'An unknown error occurred.'); console.error("Failed to fetch data:", err); }
+           finally { setIsLoading(false); }
         };
         fetchData();
      }, []);
@@ -109,9 +126,6 @@ const TransactionsPage: React.FC = () => {
 
     const incomeCategories = useMemo(() => categories.filter(c => c.type === 'Надходження').map(c => c.name), [categories]);
     const expenseCategories = useMemo(() => categories.filter(c => c.type === 'Витрата').map(c => c.name), [categories]);
-    // Додаємо лог для перевірки expenseCategories
-    useEffect(() => { console.log("STATE_UPDATE: Expense Categories for UI:", expenseCategories); }, [expenseCategories]);
-
 
     const handleSelectAllIncomeCategories = useCallback(() => {
         const otherSelected = selectedCategories.filter(sc => !incomeCategories.includes(sc));
@@ -137,175 +151,76 @@ const TransactionsPage: React.FC = () => {
         setStartDate(formatDateForInput(startDate)); setEndDate(formatDateForInput(endDate));
     }, []);
 
-
     // === РОЗРАХУНОК ПОКАЗНИКІВ ДЛЯ ШАПКИ ===
     const headerMetrics = useMemo(() => {
-        console.log("HEADER_METRICS: Recalculating...");
         const today = new Date(); today.setUTCHours(23, 59, 59, 999);
         const currentBalanceDetails: BalanceDetails = {};
-        accounts.forEach(acc => currentBalanceDetails[acc] = 0); // Ініціалізація
-
-        let includedTx = 0;
+        accounts.forEach(acc => currentBalanceDetails[acc] = 0);
         allTransactions.forEach(tx => {
             const txDate = parseDate(tx.date);
-             if (currentBalanceDetails.hasOwnProperty(tx.account) && txDate && txDate <= today) {
-                const amount = tx.amount; // Вже перевірено на число при завантаженні
-                currentBalanceDetails[tx.account] += (tx.type === 'Надходження' ? amount : -amount);
-                includedTx++;
+            if (currentBalanceDetails.hasOwnProperty(tx.account) && txDate && txDate <= today) {
+                currentBalanceDetails[tx.account] += (tx.type === 'Надходження' ? tx.amount : -tx.amount);
             }
         });
         const currentTotalBalance = Object.values(currentBalanceDetails).reduce((sum, bal) => sum + bal, 0);
-        console.log(`HEADER_METRICS: Calculated balance. ${includedTx} tx included. Total: ${currentTotalBalance}`, currentBalanceDetails);
-
         // Розрахунок Ранвею
-        // ... (розрахунок Runway без змін, використовує currentTotalBalance) ...
         const threeMonthsAgo = new Date(today.getUTCFullYear(), today.getUTCMonth() - 3, 1);
         const lastMonthEnd = new Date(today.getUTCFullYear(), today.getUTCMonth(), 0); lastMonthEnd.setUTCHours(23,59,59,999);
-        let totalExpensesLast3Months = 0; let expenseTxCount = 0;
-        allTransactions.forEach(tx => {
-            const txDate = parseDate(tx.date);
-            const amount = tx.amount;
-            if (tx.type === 'Витрата' && txDate && txDate >= threeMonthsAgo && txDate <= lastMonthEnd) {
-                totalExpensesLast3Months += amount; expenseTxCount++;
-            }
-        });
-        console.log(`HEADER_METRICS: Runway calculation: ${expenseTxCount} expense tx in last 3m. Total: ${totalExpensesLast3Months}`);
+        let totalExpensesLast3Months = 0;
+        allTransactions.forEach(tx => { const txDate = parseDate(tx.date); if (tx.type === 'Витрата' && txDate && txDate >= threeMonthsAgo && txDate <= lastMonthEnd) { totalExpensesLast3Months += tx.amount; } });
         const avgMonthlyExpense = totalExpensesLast3Months > 0 ? totalExpensesLast3Months / 3 : 0;
         let runwayMonths: number | null | typeof Infinity = null;
         if (avgMonthlyExpense > 0 && currentTotalBalance > 0) { runwayMonths = currentTotalBalance / avgMonthlyExpense; }
         else if (currentTotalBalance >= 0 && avgMonthlyExpense <= 0) { runwayMonths = Infinity; }
         const balanceTooltipText = accounts.map(acc => `${acc}: ${formatNumber(currentBalanceDetails[acc] || 0)} ₴`).join('\n');
-
         return { currentTotalBalance, runwayMonths, balanceTooltipText };
     }, [allTransactions, accounts]);
 
 
     // === ОБРОБКА ДАНИХ ДЛЯ ГРАФІКА ТА ТАБЛИЦІ ===
     const processedData = useMemo(() => {
-        console.log("PROCESS_DATA: Recalculating for chart/table..."); // Лог
         const startFilterDate = startDate ? parseDate(startDate) : null;
         const endFilterDate = endDate ? parseDate(endDate) : null;
         if (startFilterDate) startFilterDate.setUTCHours(0, 0, 0, 0);
         if (endFilterDate) endFilterDate.setUTCHours(23, 59, 59, 999);
-        console.log("PROCESS_DATA: Using date range:", { startFilterDate, endFilterDate });
-        console.log("PROCESS_DATA: Using filters:", { selectedType, selectedAccounts, selectedCategories });
-
         const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
-
-        // 1. Розрахунок початкового балансу (тільки по accountsToConsider)
+        // Розрахунок початкового балансу
         const balanceDetailsAtStart: BalanceDetails = {};
         accountsToConsider.forEach(acc => balanceDetailsAtStart[acc] = 0);
-        let startBalanceTxCount = 0;
-        allTransactions.forEach(tx => {
-            const txDate = parseDate(tx.date);
-            const accountMatches = accountsToConsider.includes(tx.account);
-            if (txDate && accountMatches && (!startFilterDate || txDate < startFilterDate)) {
-                balanceDetailsAtStart[tx.account] = (balanceDetailsAtStart[tx.account] || 0) + (tx.type === 'Надходження' ? tx.amount : -tx.amount);
-                startBalanceTxCount++;
-            }
-        });
-         console.log(`PROCESS_DATA: Calculated start balance details from ${startBalanceTxCount} tx:`, balanceDetailsAtStart);
-
-        // 2. Фільтруємо транзакції для таблиці ТА графіка за ВСІМА фільтрами
-        let iteration = 0;
-        const filteredTransactionsForPeriod = allTransactions.filter(tx => {
-            iteration++;
-            // Логування ДЛЯ КОЖНОЇ ТРАНЗАКЦІЇ під час фільтрації
-            // console.log(`PROCESS_DATA: Filtering tx #${iteration}`, tx);
-            const typeMatch = selectedType === 'Всі' || tx.type === selectedType;
-            if (!typeMatch) return false;
-            const accountMatch = selectedAccounts.length === 0 || selectedAccounts.includes(tx.account);
-            if (!accountMatch) return false;
-            const categoryMatch = selectedCategories.length === 0 || selectedCategories.includes(tx.category);
-            if (!categoryMatch) return false;
-            const txDate = parseDate(tx.date);
-            if (!txDate) return false; // Якщо дата не парситься - пропускаємо
-            const startDateMatch = !startFilterDate || txDate >= startFilterDate;
-            if (!startDateMatch) return false;
-            const endDateMatch = !endFilterDate || txDate <= endFilterDate;
-            if (!endDateMatch) return false;
-            // console.log(`PROCESS_DATA: Tx #${iteration} PASSED filters`);
-            return true;
-        });
-        console.log("PROCESS_DATA: Filtered Transactions for Period/Table:", filteredTransactionsForPeriod); // Лог транзакцій для таблиці
-
-        // 3. Генеруємо список ВСІХ місяців у діапазоні (без змін)
+        allTransactions.forEach(tx => { const txDate = parseDate(tx.date); const accountMatches = accountsToConsider.includes(tx.account); if (txDate && accountMatches && (!startFilterDate || txDate < startFilterDate)) { balanceDetailsAtStart[tx.account] = (balanceDetailsAtStart[tx.account] || 0) + (tx.type === 'Надходження' ? tx.amount : -tx.amount); } });
+        // Фільтруємо транзакції
+        const filteredTransactionsForPeriod = allTransactions.filter(tx => { if (selectedType !== 'Всі' && tx.type !== selectedType) return false; if (selectedAccounts.length > 0 && !selectedAccounts.includes(tx.account)) return false; if (selectedCategories.length > 0 && !selectedCategories.includes(tx.category)) return false; const txDate = parseDate(tx.date); if (!txDate) return false; if (startFilterDate && txDate < startFilterDate) return false; if (endFilterDate && txDate > endFilterDate) return false; return true; });
+        // Генеруємо місяці
         const allMonthsInRange: { key: string; name: string }[] = [];
-        if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) { /* ... генеруємо місяці ... */ }
-
-        // 4. Групуємо ВІДФІЛЬТРОВАНІ транзакції по місяцях
+        if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) { let currentMonth = new Date(Date.UTC(startFilterDate.getUTCFullYear(), startFilterDate.getUTCMonth(), 1)); while (currentMonth <= endFilterDate) { const monthYearKey = `${currentMonth.getUTCFullYear()}-${(currentMonth.getUTCMonth() + 1).toString().padStart(2, '0')}`; const monthName = currentMonth.toLocaleString('uk-UA', { month: 'short', year: 'numeric', timeZone: 'UTC' }); allMonthsInRange.push({ key: monthYearKey, name: monthName }); if (currentMonth.getUTCMonth() === 11) { currentMonth = new Date(Date.UTC(currentMonth.getUTCFullYear() + 1, 0, 1)); } else { currentMonth.setUTCMonth(currentMonth.getUTCMonth() + 1); } } }
+        // Групуємо транзакції
         const monthlyActivityMap: { [monthYear: string]: Omit<MonthlyChartData, 'balance' | 'name' | 'balanceDetails'> & { balanceChangeDetails: BalanceDetails } } = {};
-        allMonthsInRange.forEach(monthInfo => { /* ... ініціалізуємо ... */ });
-        // Важливо: використовуємо filteredTransactionsForPeriod тут
-        filteredTransactionsForPeriod.forEach(tx => { /* ... заповнюємо monthlyActivityMap ... */ });
-
-        // 5. Розраховуємо наростаючий баланс і деталізацію по рахунках
+        allMonthsInRange.forEach(monthInfo => { monthlyActivityMap[monthInfo.key] = { income: 0, expense: 0, incomeDetails: {}, expenseDetails: {}, balanceChangeDetails: {} }; accountsToConsider.forEach(acc => { monthlyActivityMap[monthInfo.key].balanceChangeDetails[acc] = 0; }); });
+        filteredTransactionsForPeriod.forEach(tx => { const txDate = parseDate(tx.date); if (txDate) { const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`; if (monthlyActivityMap[monthYear]) { const monthEntry = monthlyActivityMap[monthYear]; const category = tx.category; const account = tx.account; const amountChange = (tx.type === 'Надходження' ? tx.amount : -tx.amount); if (tx.type === 'Надходження') { monthEntry.income += tx.amount; monthEntry.incomeDetails[category] = (monthEntry.incomeDetails[category] || 0) + tx.amount; } else if (tx.type === 'Витрата') { monthEntry.expense += tx.amount; monthEntry.expenseDetails[category] = (monthEntry.expenseDetails[category] || 0) + tx.amount; } if (accountsToConsider.includes(account)) { monthEntry.balanceChangeDetails[account] = (monthEntry.balanceChangeDetails[account] || 0) + amountChange; } } } });
+        // Розраховуємо баланс
         const runningBalanceDetails = { ...balanceDetailsAtStart };
-        const barChartData: MonthlyChartData[] = allMonthsInRange.map(monthInfo => {
-            const activity = monthlyActivityMap[monthInfo.key];
-            if (!activity) { // Додаткова перевірка
-                const currentBalance = Object.values(runningBalanceDetails).reduce((s, b) => s + b, 0);
-                return { name: monthInfo.name, income: 0, expense: 0, balance: currentBalance, incomeDetails: {}, expenseDetails: {}, balanceDetails: { ...runningBalanceDetails } };
-            }
-            const balanceChanges = activity.balanceChangeDetails;
-            Object.keys(balanceChanges).forEach(account => {
-                if (runningBalanceDetails.hasOwnProperty(account)) {
-                   runningBalanceDetails[account] = (runningBalanceDetails[account] || 0) + balanceChanges[account];
-                }
-            });
-            const endOfMonthBalance = Object.values(runningBalanceDetails).reduce((sum, bal) => sum + bal, 0);
-            return { name: monthInfo.name, income: activity.income, expense: activity.expense, balance: endOfMonthBalance, incomeDetails: activity.incomeDetails, expenseDetails: activity.expenseDetails, balanceDetails: { ...runningBalanceDetails } };
-        });
-
-        console.log("PROCESS_DATA: Final Bar Chart Data:", barChartData); // Лог даних для графіка
-
+        const barChartData: MonthlyChartData[] = allMonthsInRange.map(monthInfo => { const activity = monthlyActivityMap[monthInfo.key]; const balanceChanges = activity.balanceChangeDetails; Object.keys(balanceChanges).forEach(account => { if (runningBalanceDetails.hasOwnProperty(account)) { runningBalanceDetails[account] = (runningBalanceDetails[account] || 0) + balanceChanges[account]; } }); const endOfMonthBalance = Object.values(runningBalanceDetails).reduce((sum, bal) => sum + bal, 0); return { name: monthInfo.name, income: activity.income, expense: activity.expense, balance: endOfMonthBalance, incomeDetails: activity.incomeDetails, expenseDetails: activity.expenseDetails, balanceDetails: { ...runningBalanceDetails } }; });
         return { filteredTransactions: filteredTransactionsForPeriod, barChartData };
-
     }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedType, accounts]);
-    // --- Кінець ОБРОБКИ ДАНИХ ---
 
 
     // --- Компонент для Кастомної Підказки (Tooltip) ---
-    // Повний CustomTooltip
     const CustomTooltip = ({ active, payload, label }: any) => {
-        // Додаємо лог на вході
-        // console.log("TOOLTIP: Triggered", { active, payload, label });
         if (active && payload && payload.length) {
             const currentMonthData = processedData.barChartData.find(d => d.name === label);
-            // console.log("TOOLTIP: Found month data", currentMonthData);
             if (!currentMonthData) return null;
-
             const renderDetails = (details: { [key: string]: number }, type: 'income' | 'expense' | 'balance') => {
                  const colorClass = type === 'income' ? 'text-green-600' : type === 'expense' ? 'text-red-600' : 'text-blue-600';
                  const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
                  let detailsToShow: [string, number][];
-                 if (type === 'balance') {
-                      const fullBalanceDetails: BalanceDetails = {};
-                      accountsToConsider.forEach(acc => { fullBalanceDetails[acc] = details[acc] || 0; });
-                      detailsToShow = Object.entries(fullBalanceDetails).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([,a],[,b]) => b - a);
-                      if (detailsToShow.length === 0) {
-                           if (accountsToConsider.length > 0) return <p key={accountsToConsider[0]} className={`text-xs ${colorClass}`}> - {accountsToConsider[0]}: {formatNumber(0)} ₴</p>;
-                           else return <p className="text-xs text-gray-500 italic">- немає рахунків -</p>;
-                      }
-                 } else {
-                     detailsToShow = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a);
-                     if(detailsToShow.length === 0) return <p className="text-xs text-gray-500 italic">- немає деталей -</p>;
-                 }
+                 if (type === 'balance') { const fullBalanceDetails: BalanceDetails = {}; accountsToConsider.forEach(acc => { fullBalanceDetails[acc] = details[acc] || 0; }); detailsToShow = Object.entries(fullBalanceDetails).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([,a],[,b]) => b - a); if (detailsToShow.length === 0) { if (accountsToConsider.length > 0) return <p key={accountsToConsider[0]} className={`text-xs ${colorClass}`}> - {accountsToConsider[0]}: {formatNumber(0)} ₴</p>; else return <p className="text-xs text-gray-500 italic">- немає рахунків -</p>; } }
+                 else { detailsToShow = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a); if(detailsToShow.length === 0) return <p className="text-xs text-gray-500 italic">- немає деталей -</p>; }
                  return detailsToShow.map(([key, amount]) => ( <p key={key} className={`text-xs ${colorClass}`}> - {key}: {formatNumber(amount)} ₴</p> ));
             };
-
             const incomePayload = payload.find((p: any) => p.dataKey === 'income');
             const expensePayload = payload.find((p: any) => p.dataKey === 'expense');
             const balancePayload = payload.find((p: any) => p.dataKey === 'balance');
-
-            return (
-                <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative">
-                    <p className="font-bold mb-2 text-center">{label}</p>
-                    {balancePayload && ( <> <p className="text-blue-600 font-semibold">Баланс (кінець міс.): {formatNumber(currentMonthData.balance)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.balanceDetails, 'balance')}</div> </> )}
-                    {incomePayload && currentMonthData.income !== 0 && ( <> <p className="text-green-600 font-semibold mt-1">Надходження: {formatNumber(currentMonthData.income)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.incomeDetails, 'income')}</div> </> )}
-                    {expensePayload && currentMonthData.expense !== 0 && ( <> <p className="text-red-600 font-semibold mt-1">Витрати: {formatNumber(currentMonthData.expense)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.expenseDetails, 'expense')}</div> </> )}
-                </div>
-            );
+            return ( <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative"> <p className="font-bold mb-2 text-center">{label}</p> {balancePayload && ( <> <p className="text-blue-600 font-semibold">Баланс (кінець міс.): {formatNumber(currentMonthData.balance)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.balanceDetails, 'balance')}</div> </> )} {incomePayload && currentMonthData.income !== 0 && ( <> <p className="text-green-600 font-semibold mt-1">Надходження: {formatNumber(currentMonthData.income)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.incomeDetails, 'income')}</div> </> )} {expensePayload && currentMonthData.expense !== 0 && ( <> <p className="text-red-600 font-semibold mt-1">Витрати: {formatNumber(currentMonthData.expense)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.expenseDetails, 'expense')}</div> </> )} </div> );
         }
         return null;
     };
@@ -317,7 +232,7 @@ const TransactionsPage: React.FC = () => {
         <div>
           {/* Фільтри */}
           <div className="mb-6 p-4 border rounded bg-gray-50 space-y-4">
-               {/* Перший рядок */}
+               {/* Перший Рядок */}
                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3 items-end">
                    {/* Колонка 1: Дати */}
                    <div className="flex flex-col sm:flex-row gap-2 md:col-span-1">
@@ -361,14 +276,7 @@ const TransactionsPage: React.FC = () => {
                              <button onClick={handleSelectAllIncomeCategories} className="text-xs text-blue-600 hover:underline"> {incomeCategories.length > 0 && incomeCategories.every(ic => selectedCategories.includes(ic)) ? 'Зняти всі' : 'Вибрати всі'} </button>
                         </div>
                         <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full">
-                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> :
-                            Array.isArray(categories) && incomeCategories.length > 0 ? incomeCategories.map(catName => (
-                               <div key={`inc-${catName}`} className="flex items-center">
-                                   <input type="checkbox" id={`trans-cat-inc-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/>
-                                   <label htmlFor={`trans-cat-inc-${catName}`} className="text-xs text-gray-800 select-none cursor-pointer">{catName}</label>
-                               </div>
-                            )) : <p className="text-xs text-gray-400 p-1">Немає категорій надходжень</p>
-                           }
+                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && incomeCategories.length > 0 ? incomeCategories.map(catName => ( <div key={`inc-${catName}`} className="flex items-center"> <input type="checkbox" id={`trans-cat-inc-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cat-inc-${catName}`} className="text-xs text-gray-800 select-none cursor-pointer">{catName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій надходжень</p>}
                         </div>
                    </div>
                    {/* Колонка 3: Категорії Витрат */}
@@ -386,6 +294,8 @@ const TransactionsPage: React.FC = () => {
                                </div>
                             )) : <p className="text-xs text-gray-400 p-1">Немає категорій витрат</p>
                            }
+                           {/* Додаткова перевірка, якщо масив категорій завантажено, але витрат немає */}
+                           {!isLoading && Array.isArray(categories) && categories.length > 0 && expenseCategories.length === 0 && (<p className="text-xs text-gray-400 p-1">Немає категорій витрат</p>)}
                         </div>
                    </div>
                 </div>
@@ -405,7 +315,7 @@ const TransactionsPage: React.FC = () => {
                            <CartesianGrid strokeDasharray="3 3" />
                            <XAxis dataKey="name" fontSize={12} />
                            <YAxis tickFormatter={(value) => formatNumber(value)} fontSize={12} width={70}/>
-                           {/* ПОВЕРТАЄМО КАСТОМНИЙ TOOLTIP */}
+                            {/* ПОВЕРТАЄМО КАСТОМНИЙ TOOLTIP */}
                            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(206, 212, 218, 0.3)' }}/>
                            <Legend wrapperStyle={{fontSize: "12px"}}/>
                            <Bar dataKey="income" fill="#00C49F" name="Надходження" radius={[4, 4, 0, 0]} />
@@ -436,7 +346,6 @@ const TransactionsPage: React.FC = () => {
                      </tr>
                    </thead>
                    <tbody className="bg-white divide-y divide-gray-200">
-                     {/* Додаємо сортування перед map */}
                      {processedData.filteredTransactions.length === 0 ? (
                        <tr> <td colSpan={5} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
                      ) : (
