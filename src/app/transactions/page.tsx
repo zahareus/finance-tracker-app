@@ -6,33 +6,95 @@ import {
 } from 'recharts';
 
 // --- Типи даних ---
-interface Transaction { date: string | null; amount: number; type: string; account: string; category: string; description: string;}
-interface CategoryInfo { name: string; type: string; }
-interface MonthlyChartData { name: string; income: number; expense: number; balance: number; incomeDetails: { [category: string]: number }; expenseDetails: { [category: string]: number }; balanceDetails: { [account: string]: number }; }
-interface BalanceDetails { [account: string]: number; }
+interface Transaction {
+  date: string | null;
+  amount: number;
+  type: string; // 'Надходження' або 'Витрата'
+  account: string;
+  category: string;
+  description: string;
+}
+interface CategoryInfo {
+    name: string;
+    type: string; // 'Надходження' або 'Витрата'
+}
+interface MonthlyChartData {
+    name: string; // Місяць
+    income: number;
+    expense: number;
+    balance: number; // Баланс на кінець місяця
+    incomeDetails: { [category: string]: number };
+    expenseDetails: { [category: string]: number };
+    balanceDetails: { [account: string]: number }; // Деталізація балансу по рахунках
+}
+interface BalanceDetails {
+    [account: string]: number;
+}
+// --- Кінець типів ---
 
 // --- Хелпери ---
 const formatNumber = (num: number): string => {
     if (typeof num !== 'number' || isNaN(num)) { return '0,00'; }
     return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
+
 const parseDate = (dateString: string | null): Date | null => {
     if (!dateString || typeof dateString !== 'string') return null;
     try {
+        // Спочатку спробуємо '-':MM-DD
         let parts = dateString.split('-');
-        if (parts.length === 3) { const date = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2])); if (!isNaN(date.getTime())) return date; }
+        if (parts.length === 3 && parts[0].length === 4 && parts[1].length === 2 && parts[2].length === 2) {
+            const year = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10); // 1-12
+            const day = parseInt(parts[2], 10);
+            if (!isNaN(year) && !isNaN(month) && !isNaN(day) && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+               const date = new Date(Date.UTC(year, month - 1, day));
+               if (!isNaN(date.getTime()) && date.getUTCDate() === day && date.getUTCMonth() === month - 1 && date.getUTCFullYear() === year) {
+                   return date;
+               }
+            }
+        }
+        // Потім спробуємо DD.MM.'':''
         parts = dateString.split('.');
-        if (parts.length === 3) { const date = new Date(Date.UTC(+parts[2], +parts[1] - 1, +parts[0])); if (!isNaN(date.getTime())) return date; }
-    } catch (e) { console.error("Error parsing date:", dateString, e); }
-    return null;
+        if (parts.length === 3 && parts[0].length === 2 && parts[1].length === 2 && parts[2].length === 4) {
+            const day = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10); // 1-12
+            const year = parseInt(parts[2], 10);
+             if (!isNaN(year) && !isNaN(month) && !isNaN(day) && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                 const date = new Date(Date.UTC(year, month - 1, day));
+                 if (!isNaN(date.getTime()) && date.getUTCDate() === day && date.getUTCMonth() === month - 1 && date.getUTCFullYear() === year) {
+                     return date;
+                 }
+             }
+        }
+    } catch (e) {
+        console.error("Error parsing date string:", dateString, e);
+    }
+    console.warn("Could not parse date string:", dateString);
+    return null; // Гарантований return null
 };
+
 const formatDateForInput = (date: Date): string => {
-    if (!(date instanceof Date) || isNaN(date.getTime())) { date = new Date(); }
-    const year = date.getFullYear();
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    if (!(date instanceof Date) || isNaN(date.getTime())) {
+        console.warn("Invalid date passed to formatDateForInput, using today.", date);
+        date = new Date();
+    }
+    try {
+        const year = date.getUTCFullYear();
+        const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+        const day = date.getUTCDate().toString().padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    } catch (e) {
+        console.error("Error formatting date for input:", date, e);
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = (today.getMonth() + 1).toString().padStart(2, '0');
+        const day = today.getDate().toString().padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
 };
+// --- Кінець хелперів ---
+
 
 const TransactionsPage: React.FC = () => {
     // --- Стан ---
@@ -41,8 +103,16 @@ const TransactionsPage: React.FC = () => {
     const [categories, setCategories] = useState<CategoryInfo[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const getInitialDates = () => { const today = new Date(); const firstDay = new Date(today.getFullYear(), today.getMonth(), 1); const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0); return { start: formatDateForInput(firstDay), end: formatDateForInput(lastDay) } }
-    const initialDates = getInitialDates();
+    // Повна функція getInitialDates
+    const getInitialDates = useCallback(() => {
+        const today = new Date();
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        return { start: formatDateForInput(firstDay), end: formatDateForInput(lastDay) }
+    }, []); // Використовуємо useCallback
+
+    const initialDates = useMemo(() => getInitialDates(), [getInitialDates]); // Викликаємо один раз
+
     const [startDate, setStartDate] = useState<string>(initialDates.start);
     const [endDate, setEndDate] = useState<string>(initialDates.end);
     const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
@@ -50,6 +120,7 @@ const TransactionsPage: React.FC = () => {
     const [selectedType, setSelectedType] = useState<string>('Всі');
 
     // --- Завантаження даних ---
+    // Повний useEffect
     useEffect(() => {
         const fetchData = async () => {
            setIsLoading(true); setError(null);
@@ -69,6 +140,7 @@ const TransactionsPage: React.FC = () => {
      }, []);
 
     // --- Обробники фільтрів ---
+    // Повні обробники
     const handleAccountChange = useCallback((account: string) => { setSelectedAccounts(prev => prev.includes(account) ? prev.filter(a => a !== account) : [...prev, account]); }, []);
     const handleSelectAllAccounts = useCallback(() => { setSelectedAccounts(prev => prev.length === accounts.length ? [] : accounts); }, [accounts]);
     const handleCategoryChange = useCallback((category: string) => { setSelectedCategories(prev => prev.includes(category) ? prev.filter(c => c !== category) : [...prev, category]); }, []);
@@ -77,39 +149,37 @@ const TransactionsPage: React.FC = () => {
     const handleSelectAllIncomeCategories = useCallback(() => { const otherSelected = selectedCategories.filter(sc => !incomeCategories.includes(sc)); const allIncomeSelected = incomeCategories.length > 0 && incomeCategories.every(ic => selectedCategories.includes(ic)); if (allIncomeSelected) { setSelectedCategories(otherSelected); } else { setSelectedCategories(Array.from(new Set([...otherSelected, ...incomeCategories]))); } }, [incomeCategories, selectedCategories]);
     const handleSelectAllExpenseCategories = useCallback(() => { const otherSelected = selectedCategories.filter(sc => !expenseCategories.includes(sc)); const allExpenseSelected = expenseCategories.length > 0 && expenseCategories.every(ec => selectedCategories.includes(ec)); if (allExpenseSelected) { setSelectedCategories(otherSelected); } else { setSelectedCategories(Array.from(new Set([...otherSelected, ...expenseCategories]))); } }, [expenseCategories, selectedCategories]);
 
-    // **ОНОВЛЕНА ЛОГІКА КНОПОК ПЕРІОДІВ**
+    // **ПОВНА ТА ВИПРАВЛЕНА функція setDateRangePreset**
     const setDateRangePreset = useCallback((preset: 'last_month' | 'last_3_months' | 'last_12_months') => {
         const today = new Date();
-        const currentYear = today.getFullYear();
-        const currentMonth = today.getMonth(); // 0-11
-
-        let startDate = new Date();
-        let endDate = new Date();
+        let year = today.getFullYear();
+        let month = today.getMonth(); // 0-11
+        // **ВИПРАВЛЕННЯ: Ініціалізуємо startDate та endDate**
+        let startDate: Date = new Date();
+        let endDate: Date = new Date();
 
         switch(preset) {
             case 'last_month':
-                // End date is the last day of the *previous* month
-                endDate = new Date(currentYear, currentMonth, 0);
-                // Start date is the first day of the *previous* month
+                // Кінець попереднього місяця
+                endDate = new Date(year, month, 0);
+                // Початок попереднього місяця
                 startDate = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
                 break;
             case 'last_3_months':
-                // End date is the last day of the *previous* month
-                endDate = new Date(currentYear, currentMonth, 0);
-                 // Start date is the first day of the month 3 months before the *end* month's month
-                 // Example: If today is May 3rd -> end is April 30th (month 3). Start month should be Feb (month 1). 3 - 2 = 1.
+                 // Кінець попереднього місяця
+                endDate = new Date(year, month, 0);
+                 // Початок місяця 3 місяці тому відносно кінцевої дати
                 startDate = new Date(endDate.getFullYear(), endDate.getMonth() - 2, 1);
                 break;
             case 'last_12_months':
-                 // End date is the last day of the *previous* month
-                 endDate = new Date(currentYear, currentMonth, 0);
-                 // Start date is the first day of the month 12 months ago (relative to *end date's* month)
-                 // Example: If today is May 3rd -> end is April 30th, 2025 (month 3). Start should be May 1st, 2024 (month 4, year 2024).
-                 // End month is 3. Month index is 3. 3 - 11 = -8.
-                 // new Date(2025, -8, 1) should correctly resolve to May 1st, 2024.
+                 // Кінець попереднього місяця
+                 endDate = new Date(year, month, 0);
+                 // Початок місяця 12 місяців тому (тобто за 11 місяців до кінцевого)
                  startDate = new Date(endDate.getFullYear(), endDate.getMonth() - 11, 1);
                 break;
+            // Немає потреби в default, оскільки тип preset обмежений
         }
+        // Тепер startDate та endDate гарантовано мають значення Date перед форматуванням
         setStartDate(formatDateForInput(startDate));
         setEndDate(formatDateForInput(endDate));
     }, []); // Залежностей немає
@@ -122,20 +192,86 @@ const TransactionsPage: React.FC = () => {
         const endFilterDate = endDate ? parseDate(endDate) : null;
         if (startFilterDate) startFilterDate.setUTCHours(0, 0, 0, 0);
         if (endFilterDate) endFilterDate.setUTCHours(23, 59, 59, 999);
+
         const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
         if (!Array.isArray(accountsToConsider)) return { filteredTransactions: [], barChartData: [] };
+
+        // 1. Розрахунок початкового балансу
         const balanceDetailsAtStart: BalanceDetails = {};
         accountsToConsider.forEach(acc => balanceDetailsAtStart[acc] = 0);
-        allTransactions.forEach(tx => { const txDate = parseDate(tx.date); const accountMatches = accountsToConsider.includes(tx.account); if (txDate && accountMatches && (!startFilterDate || txDate < startFilterDate)) { balanceDetailsAtStart[tx.account] = (balanceDetailsAtStart[tx.account] || 0) + (tx.type === 'Надходження' ? tx.amount : -tx.amount); } });
-        const filteredTransactionsForPeriod = allTransactions.filter(tx => { if (typeof tx.amount !== 'number' || isNaN(tx.amount)) return false; if (selectedType !== 'Всі' && tx.type !== selectedType) return false; if (selectedAccounts.length > 0 && !selectedAccounts.includes(tx.account)) return false; if (selectedCategories.length > 0 && !selectedCategories.includes(tx.category)) return false; const txDate = parseDate(tx.date); if (!txDate) return false; if (startFilterDate && txDate < startFilterDate) return false; if (endFilterDate && txDate > endFilterDate) return false; return true; });
+        allTransactions.forEach(tx => {
+            const txDate = parseDate(tx.date);
+            const accountMatches = accountsToConsider.includes(tx.account);
+            if (txDate && accountMatches && (!startFilterDate || txDate < startFilterDate)) {
+                 const amount = typeof tx.amount === 'number' ? tx.amount : 0;
+                 balanceDetailsAtStart[tx.account] = (balanceDetailsAtStart[tx.account] || 0) + (tx.type === 'Надходження' ? amount : -amount);
+            }
+        });
+
+        // 2. Фільтруємо транзакції
+        const filteredTransactionsForPeriod = allTransactions.filter(tx => {
+            if (typeof tx.amount !== 'number' || isNaN(tx.amount)) return false;
+            const typeMatch = selectedType === 'Всі' || tx.type === selectedType;
+            if (!typeMatch) return false;
+            const accountMatch = selectedAccounts.length === 0 || selectedAccounts.includes(tx.account);
+            if (!accountMatch) return false;
+            const categoryMatch = selectedCategories.length === 0 || selectedCategories.includes(tx.category);
+            if (!categoryMatch) return false;
+            const txDate = parseDate(tx.date);
+            if (!txDate) return false; // Ігноруємо транзакції без дати
+            const startDateMatch = !startFilterDate || txDate >= startFilterDate;
+            if (!startDateMatch) return false;
+            const endDateMatch = !endFilterDate || txDate <= endFilterDate;
+            if (!endDateMatch) return false;
+            return true;
+        });
+
+        // 3. Генеруємо місяці
         const allMonthsInRange: { key: string; name: string }[] = [];
-        if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) { let currentMonth = new Date(Date.UTC(startFilterDate.getUTCFullYear(), startFilterDate.getUTCMonth(), 1)); while (currentMonth <= endFilterDate) { const monthYearKey = `${currentMonth.getUTCFullYear()}-${(currentMonth.getUTCMonth() + 1).toString().padStart(2, '0')}`; const monthName = currentMonth.toLocaleString('uk-UA', { month: 'short', year: 'numeric', timeZone: 'UTC' }); allMonthsInRange.push({ key: monthYearKey, name: monthName }); if (currentMonth.getUTCMonth() === 11) { currentMonth = new Date(Date.UTC(currentMonth.getUTCFullYear() + 1, 0, 1)); } else { currentMonth.setUTCMonth(currentMonth.getUTCMonth() + 1); } } }
+        if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) {
+            let currentMonth = new Date(Date.UTC(startFilterDate.getUTCFullYear(), startFilterDate.getUTCMonth(), 1));
+            while (currentMonth <= endFilterDate) {
+                const monthYearKey = `${currentMonth.getUTCFullYear()}-${(currentMonth.getUTCMonth() + 1).toString().padStart(2, '0')}`;
+                const monthName = currentMonth.toLocaleString('uk-UA', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+                allMonthsInRange.push({ key: monthYearKey, name: monthName });
+                 if (currentMonth.getUTCMonth() === 11) { currentMonth = new Date(Date.UTC(currentMonth.getUTCFullYear() + 1, 0, 1)); }
+                 else { currentMonth.setUTCMonth(currentMonth.getUTCMonth() + 1); }
+            }
+        }
+
+        // 4. Групуємо транзакції
         const monthlyActivityMap: { [monthYear: string]: Omit<MonthlyChartData, 'balance' | 'name' | 'balanceDetails'> & { balanceChangeDetails: BalanceDetails } } = {};
-        allMonthsInRange.forEach(monthInfo => { monthlyActivityMap[monthInfo.key] = { income: 0, expense: 0, incomeDetails: {}, expenseDetails: {}, balanceChangeDetails: {} }; accountsToConsider.forEach(acc => { monthlyActivityMap[monthInfo.key].balanceChangeDetails[acc] = 0; }); });
-        filteredTransactionsForPeriod.forEach(tx => { const txDate = parseDate(tx.date); if (txDate) { const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`; if (monthlyActivityMap[monthYear]) { const monthEntry = monthlyActivityMap[monthYear]; const category = tx.category; const account = tx.account; const amount = tx.amount; const amountChange = (tx.type === 'Надходження' ? amount : -amount); if (tx.type === 'Надходження') { monthEntry.income += amount; monthEntry.incomeDetails[category] = (monthEntry.incomeDetails[category] || 0) + amount; } else if (tx.type === 'Витрата') { monthEntry.expense += amount; monthEntry.expenseDetails[category] = (monthEntry.expenseDetails[category] || 0) + amount; } if (accountsToConsider.includes(account)) { monthEntry.balanceChangeDetails[account] = (monthEntry.balanceChangeDetails[account] || 0) + amountChange; } } } });
+        allMonthsInRange.forEach(monthInfo => {
+             monthlyActivityMap[monthInfo.key] = { income: 0, expense: 0, incomeDetails: {}, expenseDetails: {}, balanceChangeDetails: {} };
+             accountsToConsider.forEach(acc => { monthlyActivityMap[monthInfo.key].balanceChangeDetails[acc] = 0; });
+        });
+        filteredTransactionsForPeriod.forEach(tx => {
+            const txDate = parseDate(tx.date);
+            if (txDate) {
+                const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`;
+                if (monthlyActivityMap[monthYear]) {
+                    const monthEntry = monthlyActivityMap[monthYear];
+                    const category = tx.category; const account = tx.account; const amount = tx.amount; const amountChange = (tx.type === 'Надходження' ? amount : -amount);
+                    if (tx.type === 'Надходження') { monthEntry.income += amount; monthEntry.incomeDetails[category] = (monthEntry.incomeDetails[category] || 0) + amount; }
+                    else if (tx.type === 'Витрата') { monthEntry.expense += amount; monthEntry.expenseDetails[category] = (monthEntry.expenseDetails[category] || 0) + amount; }
+                    if (accountsToConsider.includes(account)) { monthEntry.balanceChangeDetails[account] = (monthEntry.balanceChangeDetails[account] || 0) + amountChange; }
+                }
+            }
+        });
+
+        // 5. Розраховуємо баланс
         const runningBalanceDetails = { ...balanceDetailsAtStart };
-        const barChartData: MonthlyChartData[] = allMonthsInRange.map(monthInfo => { const activity = monthlyActivityMap[monthInfo.key]; const balanceChanges = activity.balanceChangeDetails; Object.keys(balanceChanges).forEach(account => { if (runningBalanceDetails.hasOwnProperty(account)) { runningBalanceDetails[account] = (runningBalanceDetails[account] || 0) + balanceChanges[account]; } }); const endOfMonthBalance = Object.values(runningBalanceDetails).reduce((sum, bal) => sum + (typeof bal === 'number' ? bal : 0), 0); return { name: monthInfo.name, income: activity.income, expense: activity.expense, balance: endOfMonthBalance, incomeDetails: activity.incomeDetails, expenseDetails: activity.expenseDetails, balanceDetails: { ...runningBalanceDetails } }; });
+        const barChartData: MonthlyChartData[] = allMonthsInRange.map(monthInfo => {
+            const activity = monthlyActivityMap[monthInfo.key];
+            const balanceChanges = activity.balanceChangeDetails;
+            Object.keys(balanceChanges).forEach(account => { if (runningBalanceDetails.hasOwnProperty(account)) { runningBalanceDetails[account] = (runningBalanceDetails[account] || 0) + balanceChanges[account]; } });
+            const endOfMonthBalance = Object.values(runningBalanceDetails).reduce((sum, bal) => sum + (typeof bal === 'number' ? bal : 0), 0);
+            // Гарантований RETURN
+            return { name: monthInfo.name, income: activity.income, expense: activity.expense, balance: endOfMonthBalance, incomeDetails: activity.incomeDetails, expenseDetails: activity.expenseDetails, balanceDetails: { ...runningBalanceDetails } };
+        });
+
         return { filteredTransactions: filteredTransactionsForPeriod, barChartData };
+
     }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedType, accounts]);
 
 
@@ -165,9 +301,10 @@ const TransactionsPage: React.FC = () => {
     // --- РЕНДЕР КОМПОНЕНТА ---
     return (
         <div>
-          {/* Фільтри */}
+          {/* --- ФІЛЬТРИ --- */}
+          {/* Повний JSX Фільтрів */}
           <div className="mb-6 p-4 border rounded bg-gray-50 space-y-4">
-               {/* Перший Рядок */}
+               {/* --- Перший Рядок Фільтрів --- */}
                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3 items-end">
                    {/* Колонка 1: Дати */}
                    <div className="flex flex-col sm:flex-row gap-2 md:col-span-1">
@@ -178,7 +315,7 @@ const TransactionsPage: React.FC = () => {
                    <div className="md:col-span-1">
                        <label className="block text-xs font-medium text-gray-600 mb-1 invisible">Швидкі Періоди</label>
                        <div className="flex space-x-2">
-                           {/* **ОНОВЛЕНО ВИКЛИКИ** */}
+                           {/* **ОНОВЛЕНО ВИКЛИКИ setDateRangePreset** */}
                            <button onClick={() => setDateRangePreset('last_month')} className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Місяць</button>
                            <button onClick={() => setDateRangePreset('last_3_months')} className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Квартал</button>
                            <button onClick={() => setDateRangePreset('last_12_months')} className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Рік</button>
@@ -192,7 +329,6 @@ const TransactionsPage: React.FC = () => {
                       </div>
                    </div>
                </div>
-
                 {/* --- Другий Рядок Фільтрів --- */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-stretch pt-2">
                     {/* Колонка 1: Рахунки */}
@@ -240,6 +376,7 @@ const TransactionsPage: React.FC = () => {
 
 
           {/* --- Графік --- */}
+          {/* Повний JSX Графіка */}
           {isLoading && <p className="mt-6 text-center">Завантаження звіту...</p>}
           {error && <p className="mt-6 text-red-600 text-center">Помилка завантаження звіту: {error}</p>}
           {!isLoading && !error && (
@@ -251,7 +388,7 @@ const TransactionsPage: React.FC = () => {
                            <CartesianGrid strokeDasharray="3 3" />
                            <XAxis dataKey="name" fontSize={12} />
                            <YAxis tickFormatter={(value) => formatNumber(value)} fontSize={12} width={70}/>
-                           {/* Повертаємо кастомну підказку */}
+                           {/* **ПОВЕРНУЛИ КАСТОМНИЙ TOOLTIP** */}
                            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(206, 212, 218, 0.3)' }} wrapperStyle={{ zIndex: 50 }} />
                            <Legend wrapperStyle={{fontSize: "12px"}}/>
                            <Bar dataKey="income" fill="#00C49F" name="Надходження" radius={[4, 4, 0, 0]} />
@@ -266,6 +403,7 @@ const TransactionsPage: React.FC = () => {
 
 
           {/* --- Таблиця транзакцій --- */}
+          {/* Повний JSX Таблиці */}
           {isLoading && <p className="mt-4 text-center">Завантаження транзакцій...</p>}
           {!isLoading && !error && (
               <div className="overflow-x-auto mt-4">
