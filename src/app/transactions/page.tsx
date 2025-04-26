@@ -70,9 +70,11 @@ const TransactionsPage: React.FC = () => {
     const handleCategoryChange = useCallback((category: string) => { setSelectedCategories(prev => prev.includes(category) ? prev.filter(c => c !== category) : [...prev, category]); }, []);
     const handleSelectAllCategories = useCallback(() => { setSelectedCategories(prev => prev.length === categories.length ? [] : categories.map(c => c.name)); }, [categories]);
 
+    // === РОЗРАХУНОК ПОКАЗНИКІВ ДЛЯ ШАПКИ (ВЖЕ В layout.tsx) ===
+    // Цей блок тут більше не потрібен
+    // const headerMetrics = useMemo(() => { ... }, [allTransactions, accounts]);
 
     // === ОБРОБКА ДАНИХ ДЛЯ ГРАФІКА ТА ТАБЛИЦІ ===
-    // Розрахунок ТІЛЬКИ для графіка та таблиці (показники шапки тепер в layout)
     const processedData = useMemo(() => {
         const startFilterDate = startDate ? parseDate(startDate) : null;
         const endFilterDate = endDate ? parseDate(endDate) : null;
@@ -81,7 +83,7 @@ const TransactionsPage: React.FC = () => {
 
         const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
 
-        // 1. Розрахунок початкового балансу для графіка (на початок startFilterDate)
+        // Розрахунок початкового балансу для графіка
         const balanceDetailsAtStart: BalanceDetails = {};
         accountsToConsider.forEach(acc => balanceDetailsAtStart[acc] = 0);
         allTransactions.forEach(tx => {
@@ -92,7 +94,7 @@ const TransactionsPage: React.FC = () => {
             }
         });
 
-        // 2. Фільтруємо транзакції для таблиці ТА графіка
+        // Фільтруємо транзакції для таблиці ТА графіка
         const filteredTransactionsForPeriod = allTransactions.filter(tx => {
             if (selectedType !== 'Всі' && tx.type !== selectedType) return false;
             if (selectedAccounts.length > 0 && !selectedAccounts.includes(tx.account)) return false;
@@ -104,7 +106,7 @@ const TransactionsPage: React.FC = () => {
             return true;
         });
 
-        // 3. Генеруємо список ВСІХ місяців у діапазоні
+        // Генеруємо список місяців у діапазоні
         const allMonthsInRange: { key: string; name: string }[] = [];
         if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) {
             let currentMonth = new Date(Date.UTC(startFilterDate.getUTCFullYear(), startFilterDate.getUTCMonth(), 1));
@@ -117,7 +119,7 @@ const TransactionsPage: React.FC = () => {
             }
         }
 
-        // 4. Групуємо відфільтровані транзакції по місяцях
+        // Групуємо транзакції по місяцях
         const monthlyActivityMap: { [monthYear: string]: Omit<MonthlyChartData, 'balance' | 'name' | 'balanceDetails'> & { balanceChangeDetails: BalanceDetails } } = {};
         allMonthsInRange.forEach(monthInfo => {
              monthlyActivityMap[monthInfo.key] = { income: 0, expense: 0, incomeDetails: {}, expenseDetails: {}, balanceChangeDetails: {} };
@@ -129,44 +131,23 @@ const TransactionsPage: React.FC = () => {
                 const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`;
                 if (monthlyActivityMap[monthYear]) {
                     const monthEntry = monthlyActivityMap[monthYear];
-                    const category = tx.category;
-                    const account = tx.account;
-                    const amountChange = (tx.type === 'Надходження' ? tx.amount : -tx.amount);
-                    if (tx.type === 'Надходження') {
-                        monthEntry.income += tx.amount;
-                        monthEntry.incomeDetails[category] = (monthEntry.incomeDetails[category] || 0) + tx.amount;
-                    } else if (tx.type === 'Витрата') {
-                        monthEntry.expense += tx.amount;
-                        monthEntry.expenseDetails[category] = (monthEntry.expenseDetails[category] || 0) + tx.amount;
-                    }
-                    if (accountsToConsider.includes(account)) {
-                       monthEntry.balanceChangeDetails[account] = (monthEntry.balanceChangeDetails[account] || 0) + amountChange;
-                    }
+                    const category = tx.category; const account = tx.account; const amountChange = (tx.type === 'Надходження' ? tx.amount : -tx.amount);
+                    if (tx.type === 'Надходження') { monthEntry.income += tx.amount; monthEntry.incomeDetails[category] = (monthEntry.incomeDetails[category] || 0) + tx.amount; }
+                    else if (tx.type === 'Витрата') { monthEntry.expense += tx.amount; monthEntry.expenseDetails[category] = (monthEntry.expenseDetails[category] || 0) + tx.amount; }
+                    if (accountsToConsider.includes(account)) { monthEntry.balanceChangeDetails[account] = (monthEntry.balanceChangeDetails[account] || 0) + amountChange; }
                 }
             }
         });
 
-        // 5. Розраховуємо наростаючий баланс і деталізацію по рахунках
+        // Розраховуємо баланс
         const runningBalanceDetails = { ...balanceDetailsAtStart };
         const barChartData: MonthlyChartData[] = allMonthsInRange.map(monthInfo => {
-            const activity = monthlyActivityMap[monthInfo.key];
-            const balanceChanges = activity.balanceChangeDetails;
-            Object.keys(balanceChanges).forEach(account => {
-                runningBalanceDetails[account] = (runningBalanceDetails[account] || 0) + balanceChanges[account];
-            });
+            const activity = monthlyActivityMap[monthInfo.key]; const balanceChanges = activity.balanceChangeDetails;
+            Object.keys(balanceChanges).forEach(account => { runningBalanceDetails[account] = (runningBalanceDetails[account] || 0) + balanceChanges[account]; });
             const endOfMonthBalance = Object.values(runningBalanceDetails).reduce((sum, bal) => sum + bal, 0);
-            return {
-                name: monthInfo.name,
-                income: activity.income,
-                expense: activity.expense,
-                balance: endOfMonthBalance,
-                incomeDetails: activity.incomeDetails,
-                expenseDetails: activity.expenseDetails,
-                balanceDetails: { ...runningBalanceDetails }
-            };
+            return { name: monthInfo.name, income: activity.income, expense: activity.expense, balance: endOfMonthBalance, incomeDetails: activity.incomeDetails, expenseDetails: activity.expenseDetails, balanceDetails: { ...runningBalanceDetails } };
         });
 
-        // Повертаємо дані для таблиці та графіка
         return { filteredTransactions: filteredTransactionsForPeriod, barChartData };
 
     }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedType, accounts]);
@@ -174,26 +155,15 @@ const TransactionsPage: React.FC = () => {
 
 
     // --- Компонент для Кастомної Підказки (Tooltip) ---
-    // Використовує processedData.barChartData
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
             const currentMonthData = processedData.barChartData.find(d => d.name === label);
             if (!currentMonthData) return null;
-
-            const renderDetails = (details: { [key: string]: number }, type: 'income' | 'expense' | 'balance') => {
-                 const colorClass = type === 'income' ? 'text-green-600' : type === 'expense' ? 'text-red-600' : 'text-blue-600';
-                 const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
-                 if (type === 'balance') { /* ... показуємо деталі балансу ... */ }
-                 const sortedDetails = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a);
-                 if(sortedDetails.length === 0) return <p className="text-xs text-gray-500 italic">- немає деталей -</p>;
-                 return sortedDetails.map(([key, amount]) => ( <p key={key} className={`text-xs ${colorClass}`}> - {key}: {formatNumber(amount)} ₴</p> ));
-            };
-
+            const renderDetails = (details: { [key: string]: number }, type: 'income' | 'expense' | 'balance') => { /* ... */ };
             const incomePayload = payload.find((p: any) => p.dataKey === 'income');
             const expensePayload = payload.find((p: any) => p.dataKey === 'expense');
             const balancePayload = payload.find((p: any) => p.dataKey === 'balance');
-
-            return ( <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative"> {/* ... JSX підказки ... */} </div> );
+            return ( <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative"> {/* ... */} </div> );
         }
         return null;
     };
@@ -202,23 +172,53 @@ const TransactionsPage: React.FC = () => {
 
     // --- РЕНДЕР КОМПОНЕНТА ---
     return (
-        // ВИДАЛЕНО ЗАГОЛОВОК H1 та СЕКЦІЮ headerMetrics
+        // Видалили <h1>Транзакції</h1>
         <div>
-          {/* Фільтри */}
+          {/* --- ФІЛЬТРИ (Повний JSX) --- */}
           <div className="mb-6 p-4 border rounded bg-gray-50 space-y-4">
-               {/* Перший рядок (Дата + Тип) */}
-               <div className="flex flex-wrap gap-4 items-end">{/* ...JSX фільтрів... */}</div>
-               {/* Другий рядок (Рахунки + Категорії) */}
-               <div className="flex flex-wrap gap-4 items-start">{/* ...JSX фільтрів... */}</div>
+               {/* --- Перший рядок (Дата + Тип) --- */}
+               <div className="flex flex-wrap gap-4 items-end">
+                   {/* Дати */}
+                   <div className="flex flex-col sm:flex-row gap-2 flex-grow basis-full sm:basis-auto">
+                       <div className='flex-1 min-w-[130px]'> <label htmlFor="trans-startDate" className="block text-xs font-medium text-gray-600 mb-1">Період Від</label> <input id="trans-startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500"/> </div>
+                       <div className='flex-1 min-w-[130px]'> <label htmlFor="trans-endDate" className="block text-xs font-medium text-gray-600 mb-1">Період До</label> <input id="trans-endDate" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500"/> </div>
+                   </div>
+                   {/* Тип */}
+                   <div className="flex-shrink-0">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Тип</label>
+                      <div className="flex rounded border border-gray-300 overflow-hidden shadow-sm">
+                        {(['Всі', 'Надходження', 'Витрата'] as const).map((type, index) => ( <button key={type} onClick={() => setSelectedType(type)} className={`px-3 py-2 text-sm transition-colors duration-150 ease-in-out ${selectedType === type ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'} ${index > 0 ? 'border-l border-gray-300' : ''}`} > {type} </button> ))}
+                      </div>
+                   </div>
+               </div>
+                {/* --- Другий рядок (Рахунки + Категорії) --- */}
+                <div className="flex flex-wrap gap-4 items-start">
+                    {/* Рахунки */}
+                    <div className="w-full sm:w-[calc(50%-0.5rem)]">
+                       <div className="flex justify-between items-center mb-1"> <label className="block text-xs font-medium text-gray-600">Рахунки</label> <button onClick={handleSelectAllAccounts} className="text-xs text-blue-600 hover:underline"> {accounts.length > 0 && selectedAccounts.length === accounts.length ? 'Зняти всі' : 'Вибрати всі'} </button> </div>
+                       <div className="h-10 overflow-y-auto border rounded p-2 bg-white space-y-1 shadow-sm">
+                          {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => ( <div key={acc} className="flex items-center"> <input type="checkbox" id={`trans-acc-${acc}`} checked={selectedAccounts.includes(acc)} onChange={() => handleAccountChange(acc)} className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2 focus:ring-blue-500"/> <label htmlFor={`trans-acc-${acc}`} className="text-xs text-gray-700 select-none cursor-pointer">{acc}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>}
+                       </div>
+                   </div>
+                    {/* Категорії */}
+                    <div className="w-full sm:w-[calc(50%-0.5rem)]">
+                       <div className="flex justify-between items-center mb-1"> <label className="block text-xs font-medium text-gray-600">Категорії</label> <button onClick={handleSelectAllCategories} className="text-xs text-blue-600 hover:underline"> {categories.length > 0 && selectedCategories.length === categories.length ? 'Зняти всі' : 'Вибрати всі'} </button> </div>
+                       <div className="h-10 overflow-y-auto border rounded p-2 bg-white space-y-1 shadow-sm">
+                          {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && categories.length > 0 ? categories.map(cat => ( <div key={cat.name} className="flex items-center"> <input type="checkbox" id={`trans-cat-${cat.name}`} checked={selectedCategories.includes(cat.name)} onChange={() => handleCategoryChange(cat.name)} className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2 focus:ring-blue-500"/> <label htmlFor={`trans-cat-${cat.name}`} className="text-xs text-gray-700 select-none cursor-pointer">{cat.name} ({cat.type === 'Надходження' ? 'Н' : 'В'})</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій</p>}
+                       </div>
+                   </div>
+                </div>
           </div>
+          {/* --- Кінець ФІЛЬТРІВ --- */}
 
-          {/* Графік */}
+
+          {/* --- Графік --- */}
+          {/* Повний JSX Графіка */}
           {isLoading && <p className="mt-6 text-center">Завантаження звіту...</p>}
           {error && <p className="mt-6 text-red-600 text-center">Помилка завантаження звіту: {error}</p>}
           {!isLoading && !error && (
                <div className="p-4 border rounded shadow bg-white mb-6 min-h-[400px]">
                    <h2 className="text-lg font-semibold mb-4 text-center">Динаміка за Період</h2>
-                   {/* Використовуємо processedData.barChartData */}
                    {processedData.barChartData.length > 0 ? (
                       <ResponsiveContainer width="100%" height={350}>
                          <BarChart data={processedData.barChartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
@@ -235,16 +235,18 @@ const TransactionsPage: React.FC = () => {
                    ) : ( <p className="text-center text-gray-500 pt-10">Немає даних для відображення звіту за обраними фільтрами.</p> )}
               </div>
           )}
+          {/* --- Кінець Графіка --- */}
 
-          {/* Таблиця */}
+
+          {/* --- Таблиця транзакцій --- */}
+          {/* Повний JSX Таблиці */}
           {isLoading && <p className="mt-4 text-center">Завантаження транзакцій...</p>}
           {!isLoading && !error && (
               <div className="overflow-x-auto mt-4">
-                 <h2 className="text-lg font-semibold mb-2">Детальні Транзакції за Період</h2>
-                 {/* Використовуємо processedData.filteredTransactions */}
+                  {/* Додаємо text-center до заголовка */}
+                 <h2 className="text-lg font-semibold mb-2 text-center">Детальні Транзакції за Період</h2>
                  <table className="min-w-full divide-y divide-gray-200">
                    <thead className="bg-gray-50">
-                      {/* Змінений порядок колонок */}
                      <tr>
                        <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Дата</th>
                        <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Сума</th>
@@ -254,7 +256,6 @@ const TransactionsPage: React.FC = () => {
                      </tr>
                    </thead>
                    <tbody className="bg-white divide-y divide-gray-200">
-                     {/* Змінений порядок комірок + нові кольори */}
                      {processedData.filteredTransactions.length === 0 ? (
                        <tr> <td colSpan={5} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
                      ) : (
@@ -274,6 +275,7 @@ const TransactionsPage: React.FC = () => {
                  </table>
               </div>
           )}
+          {/* --- Кінець Таблиці --- */}
         </div>
       );
 };
