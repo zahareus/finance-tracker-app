@@ -31,7 +31,6 @@ export default function RootLayout({
               {/* (Головна '/ ' поки показує заглушку, потім можна змінити) */}
                {/* <Link href="/" className="text-gray-600 hover:text-gray-900">Огляд</Link> */}
               <Link href="/transactions" className="text-gray-600 hover:text-gray-900 font-medium">Транзакції</Link>
-              <Link href="/reports" className="text-gray-600 hover:text-gray-900 font-medium">Звіти</Link>
             </nav>
           </header>
 
