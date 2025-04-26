@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-// Додаємо BarChart, Bar з recharts
+// Імпорти з бібліотеки Recharts
 import {
     ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend
 } from 'recharts';
@@ -35,28 +35,50 @@ const formatNumber = (num: number): string => {
     if (typeof num !== 'number' || isNaN(num)) { return '0,00'; }
     return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
+
+// Повна та виправлена функція parseDate
 const parseDate = (dateString: string | null): Date | null => {
-    // ... (функція parseDate без змін) ...
     if (!dateString) return null;
+    // Спочатку спробуємо YYYY-MM-DD
     let parts = dateString.split('-');
-    if (parts.length === 3) { const date = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2])); if (!isNaN(date.getTime())) { return date; } }
+    if (parts.length === 3) {
+        const date = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2])); // Використовуємо UTC
+        if (!isNaN(date.getTime())) { return date; }
+    }
+    // Потім спробуємо DD.MM.YYYY
     parts = dateString.split('.');
-    if (parts.length === 3) { const date = new Date(Date.UTC(+parts[2], +parts[1] - 1, +parts[0])); if (!isNaN(date.getTime())) { return date; } }
+    if (parts.length === 3) {
+        const date = new Date(Date.UTC(+parts[2], +parts[1] - 1, +parts[0])); // Використовуємо UTC
+        if (!isNaN(date.getTime())) { return date; }
+    }
+    // Якщо жоден формат не підійшов, повертаємо null
     return null;
 };
-const formatDateForInput = (date: Date): string => { /*...*/ return date.toISOString().split('T')[0]; }; // Повернув ISO формат для input[type=date]
+
+// Повна функція форматування дати в YYYY-MM-DD
+const formatDateForInput = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
 // --- Кінець хелперів ---
 
 const ReportsPage: React.FC = () => {
-    // --- Стан ---
+    // --- Стан для даних та фільтрів ---
     const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
     const [accounts, setAccounts] = useState<string[]>([]);
     const [categories, setCategories] = useState<CategoryInfo[]>([]); // Тепер потрібні
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Стан фільтрів (тепер повний набір)
-    const getInitialDates = () => { const today = new Date(); const firstDay = new Date(today.getFullYear(), today.getMonth(), 1); const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0); return { start: formatDateForInput(firstDay), end: formatDateForInput(lastDay) } }
+    // Повна функція і стан для дат
+    const getInitialDates = () => {
+      const today = new Date();
+      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      return { start: formatDateForInput(firstDayOfMonth), end: formatDateForInput(lastDayOfMonth) }
+    }
     const initialDates = getInitialDates();
     const [startDate, setStartDate] = useState<string>(initialDates.start);
     const [endDate, setEndDate] = useState<string>(initialDates.end);
@@ -65,14 +87,22 @@ const ReportsPage: React.FC = () => {
     const [selectedType, setSelectedType] = useState<string>('Всі'); // Додали
 
     // --- Завантаження даних ---
+    // Повний useEffect
     useEffect(() => {
         const fetchData = async () => {
            setIsLoading(true); setError(null);
            try {
              const response = await fetch('/api/sheet-data');
-             if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
+             if (!response.ok) {
+                 let errorText = `HTTP error! status: ${response.status}`;
+                 try { const errorData = await response.json(); errorText = errorData.error || errorText; } catch (e) {}
+                 throw new Error(errorText);
+              }
              const data = await response.json();
-             if (!Array.isArray(data.transactions) || !Array.isArray(data.accounts) || !Array.isArray(data.categories)) { throw new Error("Invalid data structure."); }
+             if (!Array.isArray(data.transactions) || !Array.isArray(data.accounts) || !Array.isArray(data.categories)) {
+                 console.error("Invalid data structure received:", data);
+                 throw new Error("Invalid data structure received from server.");
+              }
              setAllTransactions(data.transactions);
              setAccounts(data.accounts);
              setCategories(data.categories); // Зберігаємо категорії
@@ -82,14 +112,26 @@ const ReportsPage: React.FC = () => {
         fetchData();
     }, []);
 
-    // --- Обробники фільтрів (додаємо для категорій та типу) ---
-    const handleAccountChange = useCallback((account: string) => { setSelectedAccounts(prev => prev.includes(account) ? prev.filter(a => a !== account) : [...prev, account]); }, []);
-    const handleSelectAllAccounts = useCallback(() => { setSelectedAccounts(prev => prev.length === accounts.length ? [] : accounts); }, [accounts]);
-    const handleCategoryChange = useCallback((category: string) => { setSelectedCategories(prev => prev.includes(category) ? prev.filter(c => c !== category) : [...prev, category]); }, []);
-    const handleSelectAllCategories = useCallback(() => { setSelectedCategories(prev => prev.length === categories.length ? [] : categories.map(c => c.name)); }, [categories]);
-    // Обробник для setSelectedType вже був у кнопок раніше, додавати не треба
+    // --- Обробники фільтрів ---
+    // Повний handleAccountChange
+    const handleAccountChange = useCallback((account: string) => {
+        setSelectedAccounts(prev => prev.includes(account) ? prev.filter(a => a !== account) : [...prev, account]);
+    }, []);
+    // Повний handleSelectAllAccounts
+    const handleSelectAllAccounts = useCallback(() => {
+        setSelectedAccounts(prev => prev.length === accounts.length ? [] : accounts);
+    }, [accounts]);
+    // Повний handleCategoryChange
+    const handleCategoryChange = useCallback((category: string) => {
+        setSelectedCategories(prev => prev.includes(category) ? prev.filter(c => c !== category) : [...prev, category]);
+    }, []);
+    // Повний handleSelectAllCategories
+    const handleSelectAllCategories = useCallback(() => {
+        setSelectedCategories(prev => prev.length === categories.length ? [] : categories.map(c => c.name));
+    }, [categories]);
 
     // --- ОБРОБКА ДАНИХ ДЛЯ НОВОГО ГРАФІКА ---
+    // Повний useMemo
     const barChartData = useMemo((): MonthlyData[] => {
         const start = startDate ? parseDate(startDate) : null;
         const end = endDate ? parseDate(endDate) : null;
@@ -98,9 +140,9 @@ const ReportsPage: React.FC = () => {
 
         // Фільтруємо транзакції за ВСІМА фільтрами
         const relevantTransactions = allTransactions.filter(tx => {
-            if (selectedType !== 'Всі' && tx.type !== selectedType) return false; // Фільтр типу
-            if (selectedAccounts.length > 0 && !selectedAccounts.includes(tx.account)) return false; // Фільтр рахунків
-            if (selectedCategories.length > 0 && !selectedCategories.includes(tx.category)) return false; // Фільтр категорій
+            if (selectedType !== 'Всі' && tx.type !== selectedType) return false;
+            if (selectedAccounts.length > 0 && !selectedAccounts.includes(tx.account)) return false;
+            if (selectedCategories.length > 0 && !selectedCategories.includes(tx.category)) return false;
             const txDate = parseDate(tx.date);
             if (!txDate) return false;
             if (start && txDate < start) return false;
@@ -110,20 +152,16 @@ const ReportsPage: React.FC = () => {
 
         // Групуємо по місяцях і рахуємо суми та деталізацію
         const monthlyDataMap: { [monthYear: string]: MonthlyData } = {};
-
         relevantTransactions.forEach(tx => {
             const txDate = parseDate(tx.date);
             if (txDate) {
-                const monthYear = `<span class="math-inline">\{txDate\.getUTCFullYear\(\)\}\-</span>{(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`;
-                // Ініціалізуємо запис для місяця, якщо його ще немає
+                const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`;
                 if (!monthlyDataMap[monthYear]) {
                      const monthName = txDate.toLocaleString('uk-UA', { month: 'short', year: 'numeric', timeZone: 'UTC' });
                      monthlyDataMap[monthYear] = { name: monthName, income: 0, expense: 0, incomeDetails: {}, expenseDetails: {} };
                 }
-
                 const monthEntry = monthlyDataMap[monthYear];
                 const category = tx.category;
-
                 if (tx.type === 'Надходження') {
                     monthEntry.income += tx.amount;
                     monthEntry.incomeDetails[category] = (monthEntry.incomeDetails[category] || 0) + tx.amount;
@@ -141,48 +179,46 @@ const ReportsPage: React.FC = () => {
 
         return sortedData;
 
-    }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedType]); // Додали залежності фільтрів
+    }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedType]);
     // --- Кінець ОБРОБКИ ДАНИХ ---
 
     // --- Компонент для Кастомної Підказки (Tooltip) ---
+    // Повний CustomTooltip
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
-            // Знаходимо дані для поточного місяця (мітка label)
             const currentMonthData = barChartData.find(d => d.name === label);
             if (!currentMonthData) return null;
 
-            // Формуємо список категорій для підказки
             const renderDetails = (details: { [category: string]: number }) => {
                 return Object.entries(details)
-                    .filter(([, amount]) => amount > 0) // Показуємо тільки ненульові
-                    .sort(([, a], [, b]) => b - a) // Сортуємо за спаданням суми
+                    .filter(([, amount]) => amount !== 0) // Показуємо тільки ненульові
+                    .sort(([, a], [, b]) => b - a)
                     .map(([category, amount]) => (
                         <p key={category} className="text-xs">{category}: {formatNumber(amount)} ₴</p>
                     ));
             };
 
+            const incomePayload = payload.find((p: any) => p.dataKey === 'income');
+            const expensePayload = payload.find((p: any) => p.dataKey === 'expense');
+
             return (
-                <div className="bg-white p-3 shadow border rounded text-sm">
-                    <p className="font-bold mb-2">{label}</p>
-                    {/* Показуємо деталізацію для стовпчика, на який навели */}
-                    {payload[0]?.dataKey === 'income' && currentMonthData.income > 0 && (
-                        <>
-                            <p className="text-green-600 font-semibold">Надходження: {formatNumber(currentMonthData.income)} ₴</p>
-                            <div className="pl-2 border-l ml-1 my-1">{renderDetails(currentMonthData.incomeDetails)}</div>
-                        </>
-                    )}
-                     {payload[0]?.dataKey === 'expense' && currentMonthData.expense > 0 && (
-                        <>
-                            <p className="text-red-600 font-semibold">Витрати: {formatNumber(currentMonthData.expense)} ₴</p>
-                            <div className="pl-2 border-l ml-1 my-1">{renderDetails(currentMonthData.expenseDetails)}</div>
-                        </>
-                    )}
-                     {/* Якщо навели на обидва (у випадку згрупованих) */}
-                     {payload.length > 1 && payload[1]?.dataKey === 'expense' && currentMonthData.expense > 0 && (
+                <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95">
+                    <p className="font-bold mb-2 text-center">{label}</p>
+                    {incomePayload && currentMonthData.income !== 0 && (
                          <>
-                            <p className="text-red-600 font-semibold mt-2">Витрати: {formatNumber(currentMonthData.expense)} ₴</p>
-                            <div className="pl-2 border-l ml-1 my-1">{renderDetails(currentMonthData.expenseDetails)}</div>
-                        </>
+                             <p className="text-green-600 font-semibold">Надходження: {formatNumber(currentMonthData.income)} ₴</p>
+                             <div className="pl-2 border-l-2 border-green-200 ml-1 my-1">{renderDetails(currentMonthData.incomeDetails)}</div>
+                         </>
+                    )}
+                    {expensePayload && currentMonthData.expense !== 0 && (
+                         <>
+                             <p className="text-red-600 font-semibold mt-2">Витрати: {formatNumber(currentMonthData.expense)} ₴</p>
+                             <div className="pl-2 border-l-2 border-red-200 ml-1 my-1">{renderDetails(currentMonthData.expenseDetails)}</div>
+                         </>
+                    )}
+                     {/* Якщо навели не точно на стовпчик, а поруч (для згрупованих це актуально) */}
+                     {!incomePayload && !expensePayload && payload[0] && (
+                         <p>{payload[0].name}: {formatNumber(payload[0].value)} ₴</p>
                      )}
                 </div>
             );
@@ -203,8 +239,8 @@ const ReportsPage: React.FC = () => {
                 <div className="flex flex-wrap gap-4 items-end">
                     {/* Дати */}
                     <div className="flex flex-col sm:flex-row gap-2 flex-grow basis-full sm:basis-auto">
-                       <div className='flex-1 min-w-[130px]'> <label htmlFor="rep-startDate" className="block text-xs font-medium text-gray-600 mb-1">Період Від</label> <input id="rep-startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500"/> </div>
-                       <div className='flex-1 min-w-[130px]'> <label htmlFor="rep-endDate" className="block text-xs font-medium text-gray-600 mb-1">Період До</label> <input id="rep-endDate" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500"/> </div>
+                        <div className='flex-1 min-w-[130px]'> <label htmlFor="rep-startDate" className="block text-xs font-medium text-gray-600 mb-1">Період Від</label> <input id="rep-startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500"/> </div>
+                        <div className='flex-1 min-w-[130px]'> <label htmlFor="rep-endDate" className="block text-xs font-medium text-gray-600 mb-1">Період До</label> <input id="rep-endDate" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500"/> </div>
                     </div>
                     {/* Тип */}
                     <div className="flex-shrink-0">
@@ -219,6 +255,7 @@ const ReportsPage: React.FC = () => {
                      {/* Рахунки */}
                      <div className="w-full sm:w-[calc(50%-0.5rem)]">
                         <div className="flex justify-between items-center mb-1"> <label className="block text-xs font-medium text-gray-600">Рахунки</label> <button onClick={handleSelectAllAccounts} className="text-xs text-blue-600 hover:underline"> {accounts.length > 0 && selectedAccounts.length === accounts.length ? 'Зняти всі' : 'Вибрати всі'} </button> </div>
+                        {/* Висота h-10 */}
                         <div className="h-10 overflow-y-auto border rounded p-2 bg-white space-y-1 shadow-sm">
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => ( <div key={acc} className="flex items-center"> <input type="checkbox" id={`rep-acc-${acc}`} checked={selectedAccounts.includes(acc)} onChange={() => handleAccountChange(acc)} className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2 focus:ring-blue-500"/> <label htmlFor={`rep-acc-${acc}`} className="text-xs text-gray-700 select-none cursor-pointer">{acc}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>}
                         </div>
@@ -226,7 +263,7 @@ const ReportsPage: React.FC = () => {
                      {/* Категорії */}
                      <div className="w-full sm:w-[calc(50%-0.5rem)]">
                         <div className="flex justify-between items-center mb-1"> <label className="block text-xs font-medium text-gray-600">Категорії</label> <button onClick={handleSelectAllCategories} className="text-xs text-blue-600 hover:underline"> {categories.length > 0 && selectedCategories.length === categories.length ? 'Зняти всі' : 'Вибрати всі'} </button> </div>
-                         {/* Робимо таку ж висоту h-10 */}
+                         {/* Висота h-10 */}
                         <div className="h-10 overflow-y-auto border rounded p-2 bg-white space-y-1 shadow-sm">
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && categories.length > 0 ? categories.map(cat => ( <div key={cat.name} className="flex items-center"> <input type="checkbox" id={`rep-cat-${cat.name}`} checked={selectedCategories.includes(cat.name)} onChange={() => handleCategoryChange(cat.name)} className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2 focus:ring-blue-500"/> <label htmlFor={`rep-cat-${cat.name}`} className="text-xs text-gray-700 select-none cursor-pointer">{cat.name} ({cat.type === 'Надходження' ? 'Н' : 'В'})</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій</p>}
                         </div>
@@ -241,7 +278,7 @@ const ReportsPage: React.FC = () => {
             {error && <p className="mt-6 text-red-600">Помилка завантаження: {error}</p>}
 
             {!isLoading && !error && (
-                 <div className="p-4 border rounded shadow bg-white mt-6 min-h-[400px]"> {/* Збільшив мін. висоту */}
+                 <div className="p-4 border rounded shadow bg-white mt-6 min-h-[400px]">
                      <h2 className="text-lg font-semibold mb-4 text-center">Динаміка Надходжень та Витрат за Період</h2>
                      {barChartData.length > 0 ? (
                         <ResponsiveContainer width="100%" height={350}>
@@ -249,13 +286,13 @@ const ReportsPage: React.FC = () => {
                            <BarChart data={barChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                              <CartesianGrid strokeDasharray="3 3" />
                              <XAxis dataKey="name" /> {/* Місяці */}
-                             <YAxis tickFormatter={(value) => formatNumber(value)} width={80}/>
+                             <YAxis tickFormatter={(value) => formatNumber(value)} width={80}/> {/* Суми */}
                              {/* Використовуємо кастомний Tooltip */}
                              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(206, 212, 218, 0.3)' }}/>
                              <Legend />
                              {/* Два стовпці: один для надходжень, другий для витрат */}
                              <Bar dataKey="income" fill="#00C49F" name="Надходження" />
-                             {/* Відображаємо витрати як позитивні числа на графіку, але візуально відрізняємо */}
+                             {/* Відображаємо витрати як позитивні числа на графіку */}
                              <Bar dataKey="expense" fill="#FF8042" name="Витрати" />
                            </BarChart>
                         </ResponsiveContainer>
