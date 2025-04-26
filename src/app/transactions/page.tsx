@@ -1,10 +1,10 @@
-'use client'; // Потрібен для useEffect, useState
+'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react'; // Додали useCallback
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
-// --- Типи даних (можна винести в окремий файл types.ts) ---
+// --- Типи даних ---
 interface Transaction {
-  date: string | null; // Дата тепер рядок
+  date: string | null;
   amount: number;
   type: string;
   account: string;
@@ -17,29 +17,24 @@ interface CategoryInfo {
 }
 // --- Кінець типів ---
 
-// --- Хелпери (можна винести в utils.ts) ---
+// --- Хелпери ---
 const formatNumber = (num: number) => {
-    // Додамо перевірку, бо іноді може прийти не число
-    if (typeof num !== 'number' || isNaN(num)) {
-        return '0,00';
-    }
+    if (typeof num !== 'number' || isNaN(num)) { return '0,00'; }
     return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 const parseDate = (dateString: string | null): Date | null => {
     if (!dateString) return null;
-    // Спочатку спробуємо-MM-DD
     let parts = dateString.split('-');
     if (parts.length === 3) {
         const date = new Date(+parts[0], +parts[1] - 1, +parts[2]);
         if (!isNaN(date.getTime())) { return date; }
     }
-    // Потім спробуємо DD.MM.YYYY
     parts = dateString.split('.');
     if (parts.length === 3) {
         const date = new Date(+parts[2], +parts[1] - 1, +parts[0]);
         if (!isNaN(date.getTime())) { return date; }
     }
-    // console.warn("Could not parse date string:", dateString); // Можна розкоментувати для відладки дат
+    // console.warn("Could not parse date string:", dateString);
     return null;
 };
  // --- Кінець хелперів ---
@@ -48,18 +43,17 @@ const parseDate = (dateString: string | null): Date | null => {
 const TransactionsPage: React.FC = () => {
   // --- Стан для даних ---
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
-  const [accounts, setAccounts] = useState<string[]>([]); // Зберігаємо список рахунків
-  const [categories, setCategories] = useState<CategoryInfo[]>([]); // Зберігаємо список категорій
+  const [accounts, setAccounts] = useState<string[]>([]);
+  const [categories, setCategories] = useState<CategoryInfo[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  // --- Кінець стану для даних ---
 
   // --- Стан для ФІЛЬТРІВ ---
   const getInitialDates = () => {
       const today = new Date();
       const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      const formatDate = (date: Date) => date.toISOString().split('T')[0]; // Формат-MM-DD
+      const formatDate = (date: Date) => date.toISOString().split('T')[0];
       return { start: formatDate(firstDayOfMonth), end: formatDate(lastDayOfMonth) }
   }
   const initialDates = getInitialDates();
@@ -68,7 +62,6 @@ const TransactionsPage: React.FC = () => {
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedType, setSelectedType] = useState<string>('Всі');
-  // --- Кінець стану для ФІЛЬТРІВ ---
 
   // --- Завантаження даних ---
   useEffect(() => {
@@ -105,7 +98,6 @@ const TransactionsPage: React.FC = () => {
     };
     fetchData();
   }, []);
-  // --- Кінець завантаження даних ---
 
 
   // --- ЛОГІКА ФІЛЬТРАЦІЇ ---
@@ -126,7 +118,6 @@ const TransactionsPage: React.FC = () => {
       return true;
     });
   }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedType]);
-  // --- Кінець ЛОГІКИ ФІЛЬТРАЦІЇ ---
 
   // --- Обробники змін фільтрів ---
    const handleAccountChange = useCallback((account: string) => {
@@ -141,7 +132,6 @@ const TransactionsPage: React.FC = () => {
    const handleSelectAllCategories = useCallback(() => {
         setSelectedCategories(prev => prev.length === categories.length ? [] : categories.map(c => c.name));
    }, [categories]);
-  // --- Кінець обробників ---
 
 
   // --- РЕНДЕР КОМПОНЕНТА ---
@@ -149,96 +139,101 @@ const TransactionsPage: React.FC = () => {
     <div>
       <h1 className="text-xl font-semibold mb-4">Транзакції</h1>
 
-      {/* --- ФІЛЬТРИ --- */}
-      <div className="mb-4 p-4 border rounded bg-gray-50 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Фільтр Дат */}
-          <div className="col-span-1 md:col-span-2 lg:col-span-1">
-              <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">Період Від</label>
-              <input
-                  id="startDate"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full p-1 border border-gray-300 rounded text-sm"
-              />
-          </div>
-          <div className="col-span-1 md:col-span-2 lg:col-span-1">
-              <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-1">Період До</label>
-              <input
-                  id="endDate"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full p-1 border border-gray-300 rounded text-sm"
-              />
-          </div>
+      {/* --- ФІЛЬТРИ (З ОНОВЛЕНИМИ СТИЛЯМИ) --- */}
+       <div className="mb-6 p-4 border rounded bg-gray-50 flex flex-wrap gap-4 items-start"> {/* Використовуємо flex для кращого контролю */}
 
-          {/* Фільтр Типу */}
-          <div className="col-span-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Тип</label>
-              <div className="flex space-x-2">
-                  {(['Всі', 'Надходження', 'Витрата'] as const).map(type => (
-                      <button
-                          key={type}
-                          onClick={() => setSelectedType(type)}
-                          className={`px-3 py-1 rounded text-sm ${selectedType === type ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
-                      >
-                          {type}
-                      </button>
-                  ))}
-              </div>
-          </div>
+         {/* Фільтр Дат */}
+         <div className="flex flex-col sm:flex-row gap-2 flex-grow basis-full sm:basis-1/3 lg:basis-auto"> {/* Адаптивна ширина */}
+           <div className='flex-1 min-w-[130px]'>
+             <label htmlFor="startDate" className="block text-xs font-medium text-gray-600 mb-1">Період Від</label>
+             <input
+               id="startDate"
+               type="date"
+               value={startDate}
+               onChange={(e) => setStartDate(e.target.value)}
+               className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500"
+             />
+           </div>
+           <div className='flex-1 min-w-[130px]'>
+             <label htmlFor="endDate" className="block text-xs font-medium text-gray-600 mb-1">Період До</label>
+             <input
+               id="endDate"
+               type="date"
+               value={endDate}
+               onChange={(e) => setEndDate(e.target.value)}
+               className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500"
+             />
+           </div>
+         </div>
 
-          {/* Фільтр Рахунків */}
-          <div className="col-span-1">
-              <div className="flex justify-between items-center mb-1">
-                  <label className="block text-sm font-medium text-gray-700">Рахунки</label>
-                  <button onClick={handleSelectAllAccounts} className="text-xs text-blue-600 hover:underline">
-                      {accounts.length > 0 && selectedAccounts.length === accounts.length ? 'Зняти всі' : 'Вибрати всі'}
-                  </button>
-              </div>
-              <div className="max-h-24 overflow-y-auto border rounded p-1 bg-white">
-                  {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> :
-                      Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => (
-                          <div key={acc} className="flex items-center">
-                              <input
-                                  type="checkbox"
-                                  id={`acc-${acc}`}
-                                  checked={selectedAccounts.includes(acc)}
-                                  onChange={() => handleAccountChange(acc)}
-                                  className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2"
-                              />
-                              <label htmlFor={`acc-${acc}`} className="text-sm text-gray-700 select-none">{acc}</label>
-                          </div>
-                      )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>
-                  }
-              </div>
-          </div>
+         {/* Фільтр Типу */}
+         <div className="flex-shrink-0">
+            <label className="block text-xs font-medium text-gray-600 mb-1">Тип</label>
+            <div className="flex rounded border border-gray-300 overflow-hidden shadow-sm">
+              {(['Всі', 'Надходження', 'Витрата'] as const).map((type, index) => (
+                 <button
+                    key={type}
+                    onClick={() => setSelectedType(type)}
+                    className={`px-3 py-2 text-sm transition-colors duration-150 ease-in-out
+                               ${selectedType === type ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}
+                               ${index > 0 ? 'border-l border-gray-300' : ''}`}
+                 >
+                    {type}
+                 </button>
+              ))}
+            </div>
+         </div>
 
-          {/* Фільтр Категорій */}
-          <div className="col-span-1">
-              <div className="flex justify-between items-center mb-1">
-                  <label className="block text-sm font-medium text-gray-700">Категорії</label>
+         {/* Фільтр Рахунків */}
+         <div className="flex-shrink-0 w-48">
+             <div className="flex justify-between items-center mb-1">
+                 <label className="block text-xs font-medium text-gray-600">Рахунки</label>
+                 <button onClick={handleSelectAllAccounts} className="text-xs text-blue-600 hover:underline">
+                     {accounts.length > 0 && selectedAccounts.length === accounts.length ? 'Зняти всі' : 'Вибрати всі'}
+                 </button>
+             </div>
+             <div className="max-h-32 overflow-y-auto border rounded p-2 bg-white space-y-1 shadow-sm">
+                 {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> :
+                  Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => (
+                     <div key={acc} className="flex items-center">
+                         <input
+                             type="checkbox"
+                             id={`acc-${acc}`}
+                             checked={selectedAccounts.includes(acc)}
+                             onChange={() => handleAccountChange(acc)}
+                             className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2 focus:ring-blue-500"
+                         />
+                         <label htmlFor={`acc-${acc}`} className="text-xs text-gray-700 select-none cursor-pointer">{acc}</label>
+                     </div>
+                 )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>
+                 }
+             </div>
+         </div>
+
+         {/* Фільтр Категорій */}
+          <div className="flex-shrink-0 w-48">
+             <div className="flex justify-between items-center mb-1">
+                 <label className="block text-xs font-medium text-gray-600">Категорії</label>
                   <button onClick={handleSelectAllCategories} className="text-xs text-blue-600 hover:underline">
-                      {categories.length > 0 && selectedCategories.length === categories.length ? 'Зняти всі' : 'Вибрати всі'}
+                    {categories.length > 0 && selectedCategories.length === categories.length ? 'Зняти всі' : 'Вибрати всі'}
                   </button>
-              </div>
-              <div className="max-h-24 overflow-y-auto border rounded p-1 bg-white">
-                  {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> :
-                      Array.isArray(categories) && categories.length > 0 ? categories.map(cat => (
-                          <div key={cat.name} className="flex items-center">
-                              <input
-                                  type="checkbox"
-                                  id={`cat-${cat.name}`}
-                                  checked={selectedCategories.includes(cat.name)}
-                                  onChange={() => handleCategoryChange(cat.name)}
-                                  className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2"
-                              />
-                              <label htmlFor={`cat-${cat.name}`} className="text-sm text-gray-700 select-none">{cat.name} ({cat.type === 'Надходження' ? 'Н' : 'В'})</label>
-                          </div>
-                      )) : <p className="text-xs text-gray-400 p-1">Немає категорій</p>
-                  }
-              </div>
+             </div>
+             <div className="max-h-32 overflow-y-auto border rounded p-2 bg-white space-y-1 shadow-sm">
+                 {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> :
+                  Array.isArray(categories) && categories.length > 0 ? categories.map(cat => (
+                     <div key={cat.name} className="flex items-center">
+                         <input
+                             type="checkbox"
+                             id={`cat-${cat.name}`}
+                             checked={selectedCategories.includes(cat.name)}
+                             onChange={() => handleCategoryChange(cat.name)}
+                             className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2 focus:ring-blue-500"
+                         />
+                         <label htmlFor={`cat-${cat.name}`} className="text-xs text-gray-700 select-none cursor-pointer">{cat.name} ({cat.type === 'Надходження' ? 'Н' : 'В'})</label>
+                     </div>
+                 )) : <p className="text-xs text-gray-400 p-1">Немає категорій</p>
+                 }
+             </div>
           </div>
 
       </div>
