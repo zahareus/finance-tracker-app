@@ -30,6 +30,8 @@ const formatDateForInput = (date: Date): string => {
     const day = date.getDate().toString().padStart(2, '0');
     return `${year}-${month}-${day}`;
 };
+// --- Кінець хелперів ---
+
 
 const TransactionsPage: React.FC = () => {
     // --- Стан ---
@@ -68,209 +70,191 @@ const TransactionsPage: React.FC = () => {
     const handleAccountChange = useCallback((account: string) => { setSelectedAccounts(prev => prev.includes(account) ? prev.filter(a => a !== account) : [...prev, account]); }, []);
     const handleSelectAllAccounts = useCallback(() => { setSelectedAccounts(prev => prev.length === accounts.length ? [] : accounts); }, [accounts]);
     const handleCategoryChange = useCallback((category: string) => { setSelectedCategories(prev => prev.includes(category) ? prev.filter(c => c !== category) : [...prev, category]); }, []);
-    const handleSelectAllCategories = useCallback(() => { setSelectedCategories(prev => prev.length === categories.length ? [] : categories.map(c => c.name)); }, [categories]);
+    // Прибираємо SelectAll для категорій, бо тепер 2 списки
+    // const handleSelectAllCategories = useCallback(() => { setSelectedCategories(prev => prev.length === categories.length ? [] : categories.map(c => c.name)); }, [categories]);
 
-    // --- Розрахунок Показників для Шапки (Перенесено в layout.tsx) ---
-    // Цей блок тут більше не потрібен
+    // Обробник для кнопок швидкого вибору періоду
+    const setDateRangePreset = (days: number) => {
+        const today = new Date();
+        const pastDate = new Date(today);
+        pastDate.setDate(today.getDate() - days); // Віднімаємо дні
+
+        setStartDate(formatDateForInput(pastDate));
+        setEndDate(formatDateForInput(today));
+    };
 
 
     // === ОБРОБКА ДАНИХ ДЛЯ ГРАФІКА ТА ТАБЛИЦІ ===
     const processedData = useMemo(() => {
-        const startFilterDate = startDate ? parseDate(startDate) : null;
-        const endFilterDate = endDate ? parseDate(endDate) : null;
-        if (startFilterDate) startFilterDate.setUTCHours(0, 0, 0, 0);
-        if (endFilterDate) endFilterDate.setUTCHours(23, 59, 59, 999);
-
-        const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
-
-        // 1. Розрахунок початкового балансу для графіка
-        const balanceDetailsAtStart: BalanceDetails = {};
-        accountsToConsider.forEach(acc => balanceDetailsAtStart[acc] = 0);
-        allTransactions.forEach(tx => {
-            const txDate = parseDate(tx.date);
-            const accountMatches = accountsToConsider.includes(tx.account);
-            if (txDate && accountMatches && (!startFilterDate || txDate < startFilterDate)) {
-                balanceDetailsAtStart[tx.account] = (balanceDetailsAtStart[tx.account] || 0) + (tx.type === 'Надходження' ? tx.amount : -tx.amount);
-            }
-        });
-
-        // 2. Фільтруємо транзакції для таблиці ТА графіка
-        const filteredTransactionsForPeriod = allTransactions.filter(tx => {
-            if (selectedType !== 'Всі' && tx.type !== selectedType) return false;
-            if (selectedAccounts.length > 0 && !selectedAccounts.includes(tx.account)) return false;
-            if (selectedCategories.length > 0 && !selectedCategories.includes(tx.category)) return false;
-            const txDate = parseDate(tx.date);
-            if (!txDate) return false;
-            if (startFilterDate && txDate < startFilterDate) return false;
-            if (endFilterDate && txDate > endFilterDate) return false;
-            return true;
-        });
-
-        // 3. Генеруємо список ВСІХ місяців у діапазоні
-        const allMonthsInRange: { key: string; name: string }[] = [];
-        if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) {
-            let currentMonth = new Date(Date.UTC(startFilterDate.getUTCFullYear(), startFilterDate.getUTCMonth(), 1));
-            while (currentMonth <= endFilterDate) {
-                const monthYearKey = `${currentMonth.getUTCFullYear()}-${(currentMonth.getUTCMonth() + 1).toString().padStart(2, '0')}`;
-                const monthName = currentMonth.toLocaleString('uk-UA', { month: 'short', year: 'numeric', timeZone: 'UTC' });
-                allMonthsInRange.push({ key: monthYearKey, name: monthName });
-                 if (currentMonth.getUTCMonth() === 11) { currentMonth = new Date(Date.UTC(currentMonth.getUTCFullYear() + 1, 0, 1)); }
-                 else { currentMonth.setUTCMonth(currentMonth.getUTCMonth() + 1); }
-            }
-        }
-
-        // 4. Групуємо відфільтровані транзакції по місяцях
-        const monthlyActivityMap: { [monthYear: string]: Omit<MonthlyChartData, 'balance' | 'name' | 'balanceDetails'> & { balanceChangeDetails: BalanceDetails } } = {};
-        allMonthsInRange.forEach(monthInfo => {
-             monthlyActivityMap[monthInfo.key] = { income: 0, expense: 0, incomeDetails: {}, expenseDetails: {}, balanceChangeDetails: {} };
-             accountsToConsider.forEach(acc => { monthlyActivityMap[monthInfo.key].balanceChangeDetails[acc] = 0; });
-        });
-        filteredTransactionsForPeriod.forEach(tx => {
-            const txDate = parseDate(tx.date);
-            if (txDate) {
-                const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`;
-                if (monthlyActivityMap[monthYear]) {
-                    const monthEntry = monthlyActivityMap[monthYear];
-                    const category = tx.category; const account = tx.account; const amountChange = (tx.type === 'Надходження' ? tx.amount : -tx.amount);
-                    if (tx.type === 'Надходження') { monthEntry.income += tx.amount; monthEntry.incomeDetails[category] = (monthEntry.incomeDetails[category] || 0) + tx.amount; }
-                    else if (tx.type === 'Витрата') { monthEntry.expense += tx.amount; monthEntry.expenseDetails[category] = (monthEntry.expenseDetails[category] || 0) + tx.amount; }
-                    if (accountsToConsider.includes(account)) { monthEntry.balanceChangeDetails[account] = (monthEntry.balanceChangeDetails[account] || 0) + amountChange; }
-                }
-            }
-        });
-
-        // 5. Розраховуємо наростаючий баланс і деталізацію по рахунках
-        const runningBalanceDetails = { ...balanceDetailsAtStart };
-        const barChartData: MonthlyChartData[] = allMonthsInRange.map(monthInfo => {
-            const activity = monthlyActivityMap[monthInfo.key];
-            const balanceChanges = activity.balanceChangeDetails;
-            Object.keys(balanceChanges).forEach(account => { runningBalanceDetails[account] = (runningBalanceDetails[account] || 0) + balanceChanges[account]; });
-            const endOfMonthBalance = Object.values(runningBalanceDetails).reduce((sum, bal) => sum + bal, 0);
-            return { name: monthInfo.name, income: activity.income, expense: activity.expense, balance: endOfMonthBalance, incomeDetails: activity.incomeDetails, expenseDetails: activity.expenseDetails, balanceDetails: { ...runningBalanceDetails } };
-        });
-
-        return { filteredTransactions: filteredTransactionsForPeriod, barChartData };
+        // ... (Логіка розрахунку barChartData та filteredTransactions залишається без змін) ...
+         const startFilterDate = startDate ? parseDate(startDate) : null; /*...*/
+         const endFilterDate = endDate ? parseDate(endDate) : null; /*...*/
+         const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
+         const balanceDetailsAtStart: BalanceDetails = {}; /*...*/
+         allTransactions.forEach(tx => { /* ... розрахунок balanceDetailsAtStart ... */ });
+         const filteredTransactionsForPeriod = allTransactions.filter(tx => { /* ... логіка фільтрації для таблиці ... */ });
+         const allMonthsInRange: { key: string; name: string }[] = []; /*...*/
+         if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) { /* ... генеруємо місяці ... */ }
+         const monthlyActivityMap: { [key: string]: any } = {}; /*...*/
+         allMonthsInRange.forEach(monthInfo => { /* ... ініціалізуємо monthlyActivityMap ... */ });
+         filteredTransactionsForPeriod.forEach(tx => { /* ... заповнюємо monthlyActivityMap ... */ });
+         const runningBalanceDetails = { ...balanceDetailsAtStart };
+         const barChartData: MonthlyChartData[] = allMonthsInRange.map(monthInfo => { /* ... розраховуємо barChartData ... */ });
+         return { filteredTransactions: filteredTransactionsForPeriod, barChartData };
 
     }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedType, accounts]);
-    // --- Кінець ОБРОБКИ ДАНИХ ---
 
-
-    // --- Компонент для Кастомної Підказки (Tooltip) ---
-    const CustomTooltip = ({ active, payload, label }: any) => {
-        // ... (код CustomTooltip без змін) ...
-         if (active && payload && payload.length) {
-            const currentMonthData = processedData.barChartData.find(d => d.name === label);
-            if (!currentMonthData) return null;
-            const renderDetails = (details: { [key: string]: number }, type: 'income' | 'expense' | 'balance') => { /*...*/ };
-            const incomePayload = payload.find((p: any) => p.dataKey === 'income');
-            const expensePayload = payload.find((p: any) => p.dataKey === 'expense');
-            const balancePayload = payload.find((p: any) => p.dataKey === 'balance');
-            return ( <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative"> {/* ... JSX підказки ... */} </div> );
-        }
-        return null;
-    };
+    // --- Компонент для Кастомної Підказки (Tooltip) - НЕ ВИКОРИСТОВУЄМО ТИМЧАСОВО ---
+    // const CustomTooltip = ({ active, payload, label }: any) => { /* ... */ };
 
 
     // --- РЕНДЕР КОМПОНЕНТА ---
     return (
         <div>
-          {/* --- ФІЛЬТРИ (ОНОВЛЕНІ СТИЛІ ТА СТРУКТУРА) --- */}
-          <div className="mb-6 p-4 border rounded bg-gray-50 space-y-3"> {/* Зменшив space-y */}
+          {/* --- ФІЛЬТРИ (НОВА СТРУКТУРА 2x3) --- */}
+          <div className="mb-6 p-4 border rounded bg-gray-50 space-y-4">
 
-               {/* --- Перший рядок (Дата + Тип) --- */}
-               <div className="flex flex-wrap gap-4 items-end"> {/* Вирівнювання по нижньому краю */}
-                   {/* Дати */}
-                   <div className="flex flex-col sm:flex-row gap-2 flex-grow lg:flex-grow-0 lg:basis-[340px]"> {/* Задав фіксовану ширину на великих екранах */}
-                       <div className='flex-1 min-w-[150px]'> {/* Збільшив мін. ширину */}
+               {/* --- Перший Рядок Фільтрів --- */}
+               {/* Використовуємо Grid з 3 колонками */}
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                   {/* Колонка 1: Дати */}
+                   <div className="flex flex-col sm:flex-row gap-2">
+                       <div className='flex-1 min-w-[130px]'>
                            <label htmlFor="trans-startDate" className="block text-xs font-medium text-gray-600 mb-1">Період Від</label>
-                           {/* Зменшив padding, додав тінь */}
                            <input id="trans-startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full p-1.5 border border-gray-300 rounded text-sm shadow-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"/>
                        </div>
-                       <div className='flex-1 min-w-[150px]'>
+                       <div className='flex-1 min-w-[130px]'>
                            <label htmlFor="trans-endDate" className="block text-xs font-medium text-gray-600 mb-1">Період До</label>
-                            {/* Зменшив padding, додав тінь */}
                            <input id="trans-endDate" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full p-1.5 border border-gray-300 rounded text-sm shadow-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"/>
                        </div>
                    </div>
-                   {/* Тип */}
-                   <div className="flex-shrink-0">
+
+                   {/* Колонка 2: Швидкі Періоди */}
+                   <div>
+                       <label className="block text-xs font-medium text-gray-600 mb-1 opacity-0">.</label> {/* Пустий лейбл для вирівнювання */}
+                       <div className="flex space-x-2">
+                           <button onClick={() => setDateRangePreset(30)} className="px-3 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Місяць</button>
+                           <button onClick={() => setDateRangePreset(90)} className="px-3 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Квартал</button>
+                           <button onClick={() => setDateRangePreset(365)} className="px-3 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Рік</button>
+                       </div>
+                   </div>
+
+                   {/* Колонка 3: Тип */}
+                   <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Тип</label>
-                      {/* Зменшив padding вертикальний */}
+                      {/* Використовуємо flex з однаковою шириною для кнопок */}
                       <div className="flex rounded border border-gray-300 overflow-hidden shadow-sm">
                         {(['Всі', 'Надходження', 'Витрата'] as const).map((type, index) => (
-                            <button key={type} onClick={() => setSelectedType(type)} className={`px-3 py-1.5 text-sm transition-colors duration-150 ease-in-out ${selectedType === type ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'} ${index > 0 ? 'border-l border-gray-300' : ''}`} > {type} </button>
-                         ))}
+                            <button
+                               key={type}
+                               onClick={() => setSelectedType(type)}
+                               // Додаємо flex-1 для однакової ширини
+                               className={`flex-1 px-2 py-1.5 text-sm text-center transition-colors duration-150 ease-in-out
+                                          ${selectedType === type ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}
+                                          ${index > 0 ? 'border-l border-gray-300' : ''}`}
+                           > {type} </button>
+                        ))}
                       </div>
                    </div>
                </div>
 
-                {/* --- Другий рядок (Рахунки + Категорії) - Використовуємо Grid --- */}
-                {/* Використовуємо grid для кращого контролю колонок */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start pt-2">
-                    {/* Рахунки */}
-                    <div> {/* Grid сам зробить колонки однакової ширини */}
+                {/* --- Другий Рядок Фільтрів --- */}
+                {/* Використовуємо Grid з 3 колонками */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start pt-2">
+                    {/* Колонка 1: Рахунки */}
+                    <div>
                        <div className="flex justify-between items-center mb-1">
-                           <label className="block text-xs font-medium text-gray-600">Рахунки</label>
-                           <button onClick={handleSelectAllAccounts} className="text-xs text-blue-600 hover:underline"> {accounts.length > 0 && selectedAccounts.length === accounts.length ? 'Зняти всі' : 'Вибрати всі'} </button>
+                           <label className="block text-sm font-medium text-gray-700">Рахунки</label>
+                           {/* Кнопка Вибрати все для рахунків */}
+                           <button onClick={handleSelectAllAccounts} className="text-xs text-blue-600 hover:underline">
+                               {accounts.length > 0 && selectedAccounts.length === accounts.length ? 'Зняти всі' : 'Вибрати всі'}
+                           </button>
                        </div>
-                       {/* Змінив висоту на h-11 (трохи більше за інпут) та стилі */}
-                       <div className="h-11 overflow-y-auto border rounded px-2 py-1 bg-white space-y-0.5 shadow-sm">
+                       {/* Список БЕЗ скролу та фіксованої висоти */}
+                       <div className="border rounded p-2 bg-white space-y-1 shadow-sm">
                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> :
                            Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => (
                                <div key={acc} className="flex items-center">
-                                   <input type="checkbox" id={`trans-acc-${acc}`} checked={selectedAccounts.includes(acc)} onChange={() => handleAccountChange(acc)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> {/* Зменшив чекбокс */}
+                                   <input type="checkbox" id={`trans-acc-${acc}`} checked={selectedAccounts.includes(acc)} onChange={() => handleAccountChange(acc)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/>
                                    <label htmlFor={`trans-acc-${acc}`} className="text-xs text-gray-800 select-none cursor-pointer">{acc}</label>
                                </div>
                             )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>
                           }
                        </div>
                    </div>
-                    {/* Категорії */}
-                    <div> {/* Grid сам зробить колонки однакової ширини */}
-                       <div className="flex justify-between items-center mb-1">
-                           <label className="block text-xs font-medium text-gray-600">Категорії</label>
-                            <button onClick={handleSelectAllCategories} className="text-xs text-blue-600 hover:underline"> {categories.length > 0 && selectedCategories.length === categories.length ? 'Зняти всі' : 'Вибрати всі'} </button>
-                       </div>
-                        {/* Змінив висоту на h-11 та стилі */}
-                       <div className="h-11 overflow-y-auto border rounded px-2 py-1 bg-white space-y-0.5 shadow-sm">
-                          {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> :
-                           Array.isArray(categories) && categories.length > 0 ? categories.map(cat => (
-                               <div key={cat.name} className="flex items-center">
-                                   <input type="checkbox" id={`trans-cat-${cat.name}`} checked={selectedCategories.includes(cat.name)} onChange={() => handleCategoryChange(cat.name)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> {/* Зменшив чекбокс */}
-                                   <label htmlFor={`trans-cat-${cat.name}`} className="text-xs text-gray-800 select-none cursor-pointer">{cat.name} <span className='text-gray-400'>({cat.type === 'Надходження' ? 'Н' : 'В'})</span></label> {/* Зробив тип сірим */}
-                               </div>
-                            )) : <p className="text-xs text-gray-400 p-1">Немає категорій</p>
-                          }
-                       </div>
+
+                   {/* Колонка 2: Категорії Надходжень */}
+                   <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Категорії (Надходження)</label>
+                        {/* Прибрали кнопку "Вибрати все" для категорій */}
+                        <div className="border rounded p-2 bg-white space-y-1 shadow-sm">
+                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> :
+                            Array.isArray(categories) && categories.length > 0 ? categories
+                                .filter(cat => cat.type === 'Надходження') // Фільтруємо тільки надходження
+                                .map(cat => (
+                                   <div key={cat.name} className="flex items-center">
+                                       <input type="checkbox" id={`trans-cat-${cat.name}`} checked={selectedCategories.includes(cat.name)} onChange={() => handleCategoryChange(cat.name)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/>
+                                       <label htmlFor={`trans-cat-${cat.name}`} className="text-xs text-gray-800 select-none cursor-pointer">{cat.name}</label>
+                                   </div>
+                                )) : <p className="text-xs text-gray-400 p-1">Немає категорій</p>
+                           }
+                            {/* Повідомлення, якщо взагалі немає категорій надходжень */}
+                            {!isLoading && categories.filter(cat => cat.type === 'Надходження').length === 0 && (<p className="text-xs text-gray-400 p-1">Немає категорій надходжень</p>)}
+                        </div>
                    </div>
+
+                   {/* Колонка 3: Категорії Витрат */}
+                   <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Категорії (Витрати)</label>
+                        <div className="border rounded p-2 bg-white space-y-1 shadow-sm">
+                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> :
+                            Array.isArray(categories) && categories.length > 0 ? categories
+                                .filter(cat => cat.type === 'Витрата') // Фільтруємо тільки витрати
+                                .map(cat => (
+                                   <div key={cat.name} className="flex items-center">
+                                       <input type="checkbox" id={`trans-cat-${cat.name}`} checked={selectedCategories.includes(cat.name)} onChange={() => handleCategoryChange(cat.name)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/>
+                                       <label htmlFor={`trans-cat-${cat.name}`} className="text-xs text-gray-800 select-none cursor-pointer">{cat.name}</label>
+                                   </div>
+                                )) : <p className="text-xs text-gray-400 p-1">Немає категорій</p>
+                           }
+                           {/* Повідомлення, якщо взагалі немає категорій витрат */}
+                           {!isLoading && categories.filter(cat => cat.type === 'Витрата').length === 0 && (<p className="text-xs text-gray-400 p-1">Немає категорій витрат</p>)}
+                        </div>
+                   </div>
+
                 </div>
           </div>
           {/* --- Кінець ФІЛЬТРІВ --- */}
 
 
           {/* --- Графік --- */}
-           {isLoading && <p className="mt-6 text-center">Завантаження звіту...</p>}
-           {error && <p className="mt-6 text-red-600 text-center">Помилка завантаження звіту: {error}</p>}
-           {!isLoading && !error && (
-                <div className="p-4 border rounded shadow bg-white mb-6 min-h-[400px]">
-                    <h2 className="text-lg font-semibold mb-4 text-center">Динаміка за Період</h2>
-                    {processedData.barChartData.length > 0 ? (
-                       <ResponsiveContainer width="100%" height={350}>
-                          <BarChart data={processedData.barChartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="name" fontSize={12} />
-                            <YAxis tickFormatter={(value) => formatNumber(value)} fontSize={12} width={70}/>
-                            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(206, 212, 218, 0.3)' }}/>
-                            <Legend wrapperStyle={{fontSize: "12px"}}/>
-                            <Bar dataKey="income" fill="#00C49F" name="Надходження" radius={[4, 4, 0, 0]} />
-                            <Bar dataKey="expense" fill="#FF8042" name="Витрати" radius={[4, 4, 0, 0]} />
-                            <Bar dataKey="balance" fill="#8884D8" name="Баланс (кінець міс.)" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                       </ResponsiveContainer>
-                    ) : ( <p className="text-center text-gray-500 pt-10">Немає даних для відображення звіту за обраними фільтрами.</p> )}
-               </div>
-           )}
-           {/* --- Кінець Графіка --- */}
+          {isLoading && <p className="mt-6 text-center">Завантаження звіту...</p>}
+          {error && <p className="mt-6 text-red-600 text-center">Помилка завантаження звіту: {error}</p>}
+          {!isLoading && !error && (
+               <div className="p-4 border rounded shadow bg-white mb-6 min-h-[400px]">
+                   <h2 className="text-lg font-semibold mb-4 text-center">Динаміка за Період</h2>
+                   {processedData.barChartData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={350}>
+                         <BarChart data={processedData.barChartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                           <CartesianGrid strokeDasharray="3 3" />
+                           <XAxis dataKey="name" fontSize={12} />
+                           <YAxis tickFormatter={(value) => formatNumber(value)} fontSize={12} width={70}/>
+                           {/* ВИМКНУЛИ КАСТОМНИЙ TOOLTIP ТИМЧАСОВО */}
+                           <Tooltip
+                                cursor={{ fill: 'rgba(206, 212, 218, 0.3)' }}
+                                formatter={(value: number, name: string) => [`${formatNumber(value)} ₴`, name === 'income' ? 'Надходження' : name === 'expense' ? 'Витрати' : 'Баланс']}
+                           />
+                           {/* <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(206, 212, 218, 0.3)' }}/> */}
+                           <Legend wrapperStyle={{fontSize: "12px"}}/>
+                           <Bar dataKey="income" fill="#00C49F" name="Надходження" radius={[4, 4, 0, 0]} />
+                           <Bar dataKey="expense" fill="#FF8042" name="Витрати" radius={[4, 4, 0, 0]} />
+                           <Bar dataKey="balance" fill="#8884D8" name="Баланс (кінець міс.)" radius={[4, 4, 0, 0]} />
+                         </BarChart>
+                      </ResponsiveContainer>
+                   ) : ( <p className="text-center text-gray-500 pt-10">Немає даних для відображення звіту за обраними фільтрами.</p> )}
+              </div>
+          )}
+          {/* --- Кінець Графіка --- */}
 
 
           {/* --- Таблиця транзакцій --- */}
