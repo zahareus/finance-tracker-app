@@ -80,7 +80,7 @@ const formatDateForInput = (date: Date): string => {
         date = new Date();
     }
     try {
-        const year = date.getUTCFullYear(); // Використовуємо UTC для консистентності
+        const year = date.getUTCFullYear();
         const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
         const day = date.getUTCDate().toString().padStart(2, '0');
         return `${year}-${month}-${day}`;
@@ -160,31 +160,29 @@ const TransactionsPage: React.FC = () => {
 
         switch(preset) {
             case 'last_month':
-                endDate = new Date(year, month, 0); // Кінець попереднього місяця
-                startDate = new Date(endDate.getFullYear(), endDate.getMonth(), 1); // Початок попереднього місяця
+                // Кінець попереднього місяця
+                endDate = new Date(year, month, 0);
+                // Початок попереднього місяця
+                startDate = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
                 break;
             case 'last_3_months':
-                endDate = new Date(year, month, 0); // Кінець попереднього місяця
-                startDate = new Date(endDate.getFullYear(), endDate.getMonth() - 2, 1); // Початок місяця за 3 міс до кінця (включно)
+                 // Кінець попереднього місяця
+                endDate = new Date(year, month, 0);
+                 // Початок місяця 3 місяці тому відносно кінцевої дати
+                startDate = new Date(endDate.getFullYear(), endDate.getMonth() - 2, 1);
                 break;
             case 'last_12_months':
-                 endDate = new Date(year, month, 0); // Кінець попереднього місяця
-                 startDate = new Date(endDate.getFullYear(), endDate.getMonth() - 11, 1); // Початок місяця за 12 міс до кінця (включно)
+                 // Кінець попереднього місяця
+                 endDate = new Date(year, month, 0);
+                 // Початок місяця 12 місяців тому (тобто за 11 місяців до кінцевого)
+                 startDate = new Date(endDate.getFullYear(), endDate.getMonth() - 11, 1);
                 break;
             // Немає потреби в default, оскільки тип preset обмежений
         }
         // Тепер startDate та endDate гарантовано мають значення Date перед форматуванням
-        if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-            setStartDate(formatDateForInput(startDate));
-            setEndDate(formatDateForInput(endDate));
-        } else {
-             console.error("Error calculating date preset", preset, startDate, endDate);
-             // Можливо, встановити якийсь безпечний дефолтний діапазон
-             const initial = getInitialDates();
-             setStartDate(initial.start);
-             setEndDate(initial.end);
-        }
-    }, [getInitialDates]); // Додали getInitialDates як залежність
+        setStartDate(formatDateForInput(startDate));
+        setEndDate(formatDateForInput(endDate));
+    }, []); // Залежностей немає
 
 
     // === ОБРОБКА ДАНИХ ДЛЯ ГРАФІКА ТА ТАБЛИЦІ ===
@@ -205,8 +203,8 @@ const TransactionsPage: React.FC = () => {
             const txDate = parseDate(tx.date);
             const accountMatches = accountsToConsider.includes(tx.account);
             if (txDate && accountMatches && (!startFilterDate || txDate < startFilterDate)) {
-                const amount = typeof tx.amount === 'number' ? tx.amount : 0;
-                balanceDetailsAtStart[tx.account] = (balanceDetailsAtStart[tx.account] || 0) + (tx.type === 'Надходження' ? amount : -amount);
+                 const amount = typeof tx.amount === 'number' ? tx.amount : 0;
+                 balanceDetailsAtStart[tx.account] = (balanceDetailsAtStart[tx.account] || 0) + (tx.type === 'Надходження' ? amount : -amount);
             }
         });
 
@@ -283,8 +281,17 @@ const TransactionsPage: React.FC = () => {
         if (active && payload && payload.length && processedData && Array.isArray(processedData.barChartData)) {
             const currentMonthData = processedData.barChartData.find(d => d.name === label);
             if (!currentMonthData) return null;
-            const renderDetails = (details: { [key: string]: number }, type: 'income' | 'expense' | 'balance') => { const colorClass = type === 'income' ? 'text-green-600' : type === 'expense' ? 'text-red-600' : 'text-blue-600'; const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts; let detailsToShow: [string, number][]; if (type === 'balance') { const fullBalanceDetails: BalanceDetails = {}; accountsToConsider.forEach(acc => { fullBalanceDetails[acc] = details[acc] || 0; }); detailsToShow = Object.entries(fullBalanceDetails).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([,a],[,b]) => b - a); if (detailsToShow.length === 0) { if (accountsToConsider.length > 0) return <p key={accountsToConsider[0]} className={`text-xs ${colorClass}`}> - {accountsToConsider[0]}: {formatNumber(0)} ₴</p>; else return <p className="text-xs text-gray-500 italic">- немає рахунків -</p>; } } else { detailsToShow = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a); if(detailsToShow.length === 0) return <p className="text-xs text-gray-500 italic">- немає деталей -</p>; } return detailsToShow.map(([key, amount]) => ( <p key={key} className={`text-xs ${colorClass}`}> - {key}: {formatNumber(amount)} ₴</p> )); };
-            const incomePayload = payload.find((p: any) => p.dataKey === 'income'); const expensePayload = payload.find((p: any) => p.dataKey === 'expense'); const balancePayload = payload.find((p: any) => p.dataKey === 'balance');
+            const renderDetails = (details: { [key: string]: number }, type: 'income' | 'expense' | 'balance') => {
+                 const colorClass = type === 'income' ? 'text-green-600' : type === 'expense' ? 'text-red-600' : 'text-blue-600';
+                 const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
+                 let detailsToShow: [string, number][];
+                 if (type === 'balance') { const fullBalanceDetails: BalanceDetails = {}; accountsToConsider.forEach(acc => { fullBalanceDetails[acc] = details[acc] || 0; }); detailsToShow = Object.entries(fullBalanceDetails).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([,a],[,b]) => b - a); if (detailsToShow.length === 0) { if (accountsToConsider.length > 0) return <p key={accountsToConsider[0]} className={`text-xs ${colorClass}`}> - {accountsToConsider[0]}: {formatNumber(0)} ₴</p>; else return <p className="text-xs text-gray-500 italic">- немає рахунків -</p>; } }
+                 else { detailsToShow = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a); if(detailsToShow.length === 0) return <p className="text-xs text-gray-500 italic">- немає деталей -</p>; }
+                 return detailsToShow.map(([key, amount]) => ( <p key={key} className={`text-xs ${colorClass}`}> - {key}: {formatNumber(amount)} ₴</p> ));
+            };
+            const incomePayload = payload.find((p: any) => p.dataKey === 'income');
+            const expensePayload = payload.find((p: any) => p.dataKey === 'expense');
+            const balancePayload = payload.find((p: any) => p.dataKey === 'balance');
             return ( <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative"> <p className="font-bold mb-2 text-center">{label}</p> {balancePayload && currentMonthData.balanceDetails && ( <> <p className="text-blue-600 font-semibold">Баланс (кінець міс.): {formatNumber(currentMonthData.balance)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.balanceDetails, 'balance')}</div> </> )} {incomePayload && currentMonthData.income !== 0 && currentMonthData.incomeDetails && ( <> <p className="text-green-600 font-semibold mt-1">Надходження: {formatNumber(currentMonthData.income)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.incomeDetails, 'income')}</div> </> )} {expensePayload && currentMonthData.expense !== 0 && currentMonthData.expenseDetails && ( <> <p className="text-red-600 font-semibold mt-1">Витрати: {formatNumber(currentMonthData.expense)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.expenseDetails, 'expense')}</div> </> )} </div> );
         }
         return null;
@@ -294,10 +301,10 @@ const TransactionsPage: React.FC = () => {
     // --- РЕНДЕР КОМПОНЕНТА ---
     return (
         <div>
-          {/* Фільтри */}
+          {/* --- ФІЛЬТРИ --- */}
           {/* Повний JSX Фільтрів */}
           <div className="mb-6 p-4 border rounded bg-gray-50 space-y-4">
-               {/* Перший Рядок */}
+               {/* --- Перший Рядок Фільтрів --- */}
                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3 items-end">
                    {/* Колонка 1: Дати */}
                    <div className="flex flex-col sm:flex-row gap-2 md:col-span-1">
@@ -310,8 +317,8 @@ const TransactionsPage: React.FC = () => {
                        <div className="flex space-x-2">
                            {/* **ОНОВЛЕНО ВИКЛИКИ setDateRangePreset** */}
                            <button onClick={() => setDateRangePreset('last_month')} className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Місяць</button>
-                           <button onClick={() => setDateRangePreset('last_3_months')} className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">3 міс.</button>
-                           <button onClick={() => setDateRangePreset('last_12_months')} className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">12 міс.</button>
+                           <button onClick={() => setDateRangePreset('last_3_months')} className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Квартал</button>
+                           <button onClick={() => setDateRangePreset('last_12_months')} className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Рік</button>
                        </div>
                    </div>
                    {/* Колонка 3: Тип */}
@@ -334,7 +341,7 @@ const TransactionsPage: React.FC = () => {
                            </button>
                        </div>
                        <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
-                          {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => ( <div key={acc} className="flex items-center"> <input type="checkbox" id={`trans-acc-${acc}`} checked={selectedAccounts.includes(acc)} onChange={() => handleAccountChange(acc)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-acc-${acc}`} className="text-xs text-gray-800 select-none cursor-pointer">{acc}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>}
+                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => ( <div key={acc} className="flex items-center"> <input type="checkbox" id={`trans-acc-${acc}`} checked={selectedAccounts.includes(acc)} onChange={() => handleAccountChange(acc)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-acc-${acc}`} className="text-xs text-gray-800 select-none cursor-pointer">{acc}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>}
                        </div>
                    </div>
                    {/* Колонка 2: Категорії Надходжень */}
@@ -438,4 +445,4 @@ const TransactionsPage: React.FC = () => {
       );
 };
 
-export default HomePage; // Залишаємо назву HomePage для файлу page.tsx
+export default TransactionsPage;
