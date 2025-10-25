@@ -106,9 +106,9 @@ const TransactionsPage: React.FC = () => {
     // Повна функція getInitialDates
     const getInitialDates = useCallback(() => {
         const today = new Date();
-        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-        return { start: formatDateForInput(firstDay), end: formatDateForInput(lastDay) }
+        const thirtyDaysAgo = new Date(today);
+        thirtyDaysAgo.setDate(today.getDate() - 30);
+        return { start: formatDateForInput(thirtyDaysAgo), end: formatDateForInput(today) }
     }, []); // Використовуємо useCallback
 
     const initialDates = useMemo(() => getInitialDates(), [getInitialDates]); // Викликаємо один раз
