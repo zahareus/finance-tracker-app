@@ -200,7 +200,13 @@ const TransactionsPage: React.FC = () => {
         if (endFilterDate) endFilterDate.setUTCHours(23, 59, 59, 999);
 
         const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
-        if (!Array.isArray(accountsToConsider)) return { filteredTransactions: [], barChartData: [] };
+        if (!Array.isArray(accountsToConsider)) return { filteredTransactions: [], barChartData: [], shouldShowBalance: true };
+
+        // Визначаємо чи показувати баланс на графіку
+        const totalCategories = incomeCategories.length + expenseCategories.length;
+        const allCategoriesSelected = selectedCategories.length === 0 || selectedCategories.length === totalCategories;
+        const allCounterpartiesSelected = selectedCounterparties.length === 0 || selectedCounterparties.length === counterparties.length;
+        const shouldShowBalance = allCategoriesSelected && allCounterpartiesSelected;
 
         // 1. Розрахунок початкового балансу
         const balanceDetailsAtStart: BalanceDetails = {};
@@ -214,7 +220,7 @@ const TransactionsPage: React.FC = () => {
             }
         });
 
-        // 2. Фільтруємо транзакції
+        // 2. Фільтруємо транзакції для таблиці
         const filteredTransactionsForPeriod = allTransactions.filter(tx => {
             if (typeof tx.amount !== 'number' || isNaN(tx.amount)) return false;
             const typeMatch = selectedType === 'Всі' || tx.type === selectedType;
@@ -234,6 +240,17 @@ const TransactionsPage: React.FC = () => {
             return true;
         });
 
+        // 2a. Фільтруємо транзакції для графіку (виключаємо переказні категорії якщо не обрані явно)
+        const transferCategories = ['Переказ вхідний', 'Переказ вихідний'];
+        const filteredTransactionsForChart = filteredTransactionsForPeriod.filter(tx => {
+            // Якщо це переказна категорія
+            if (transferCategories.includes(tx.category)) {
+                // Включаємо тільки якщо вона явно обрана
+                return selectedCategories.length > 0 && selectedCategories.includes(tx.category);
+            }
+            return true;
+        });
+
         // 3. Генеруємо місяці
         const allMonthsInRange: { key: string; name: string }[] = [];
         if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) {
@@ -247,13 +264,13 @@ const TransactionsPage: React.FC = () => {
             }
         }
 
-        // 4. Групуємо транзакції
+        // 4. Групуємо транзакції для графіку (використовуємо filteredTransactionsForChart)
         const monthlyActivityMap: { [monthYear: string]: Omit<MonthlyChartData, 'balance' | 'name' | 'balanceDetails'> & { balanceChangeDetails: BalanceDetails } } = {};
         allMonthsInRange.forEach(monthInfo => {
              monthlyActivityMap[monthInfo.key] = { income: 0, expense: 0, incomeDetails: {}, expenseDetails: {}, balanceChangeDetails: {} };
              accountsToConsider.forEach(acc => { monthlyActivityMap[monthInfo.key].balanceChangeDetails[acc] = 0; });
         });
-        filteredTransactionsForPeriod.forEach(tx => {
+        filteredTransactionsForChart.forEach(tx => {
             const txDate = parseDate(tx.date);
             if (txDate) {
                 const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`;
@@ -278,9 +295,9 @@ const TransactionsPage: React.FC = () => {
             return { name: monthInfo.name, income: activity.income, expense: activity.expense, balance: endOfMonthBalance, incomeDetails: activity.incomeDetails, expenseDetails: activity.expenseDetails, balanceDetails: { ...runningBalanceDetails } };
         });
 
-        return { filteredTransactions: filteredTransactionsForPeriod, barChartData };
+        return { filteredTransactions: filteredTransactionsForPeriod, barChartData, shouldShowBalance };
 
-    }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedCounterparties, selectedType, accounts]);
+    }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedCounterparties, selectedType, accounts, incomeCategories, expenseCategories, counterparties]);
 
 
     // --- Компонент для Кастомної Підказки (Tooltip) ---
@@ -300,7 +317,7 @@ const TransactionsPage: React.FC = () => {
             const incomePayload = payload.find((p: any) => p.dataKey === 'income');
             const expensePayload = payload.find((p: any) => p.dataKey === 'expense');
             const balancePayload = payload.find((p: any) => p.dataKey === 'balance');
-            return ( <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative"> <p className="font-bold mb-2 text-center">{label}</p> {balancePayload && currentMonthData.balanceDetails && ( <> <p className="text-blue-600 font-semibold">Баланс (кінець міс.): {formatNumber(currentMonthData.balance)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.balanceDetails, 'balance')}</div> </> )} {incomePayload && currentMonthData.income !== 0 && currentMonthData.incomeDetails && ( <> <p className="text-green-600 font-semibold mt-1">Надходження: {formatNumber(currentMonthData.income)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.incomeDetails, 'income')}</div> </> )} {expensePayload && currentMonthData.expense !== 0 && currentMonthData.expenseDetails && ( <> <p className="text-red-600 font-semibold mt-1">Витрати: {formatNumber(currentMonthData.expense)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.expenseDetails, 'expense')}</div> </> )} </div> );
+            return ( <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative"> <p className="font-bold mb-2 text-center">{label}</p> {processedData.shouldShowBalance && balancePayload && currentMonthData.balanceDetails && ( <> <p className="text-blue-600 font-semibold">Баланс (кінець міс.): {formatNumber(currentMonthData.balance)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.balanceDetails, 'balance')}</div> </> )} {incomePayload && currentMonthData.income !== 0 && currentMonthData.incomeDetails && ( <> <p className="text-green-600 font-semibold mt-1">Надходження: {formatNumber(currentMonthData.income)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.incomeDetails, 'income')}</div> </> )} {expensePayload && currentMonthData.expense !== 0 && currentMonthData.expenseDetails && ( <> <p className="text-red-600 font-semibold mt-1">Витрати: {formatNumber(currentMonthData.expense)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.expenseDetails, 'expense')}</div> </> )} </div> );
         }
         return null;
     };
@@ -349,7 +366,7 @@ const TransactionsPage: React.FC = () => {
                            </button>
                        </div>
                        <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
-                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => ( <div key={acc} className="flex items-center"> <input type="checkbox" id={`trans-acc-${acc}`} checked={selectedAccounts.includes(acc)} onChange={() => handleAccountChange(acc)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-acc-${acc}`} className="text-xs text-gray-800 select-none cursor-pointer">{acc}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>}
+                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => ( <div key={acc} className="flex items-center"> <input type="checkbox" id={`trans-acc-${acc}`} checked={selectedAccounts.includes(acc)} onChange={() => handleAccountChange(acc)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-acc-${acc}`} className={`text-xs select-none cursor-pointer ${selectedAccounts.includes(acc) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{acc}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>}
                        </div>
                    </div>
                    {/* Колонка 2: Категорії Надходжень */}
@@ -362,7 +379,7 @@ const TransactionsPage: React.FC = () => {
                              </button>
                         </div>
                         <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
-                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && incomeCategories.length > 0 ? incomeCategories.map(catName => ( <div key={`inc-${catName}`} className="flex items-center"> <input type="checkbox" id={`trans-cat-inc-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cat-inc-${catName}`} className="text-xs text-gray-800 select-none cursor-pointer">{catName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій надходжень</p>}
+                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && incomeCategories.length > 0 ? incomeCategories.map(catName => ( <div key={`inc-${catName}`} className="flex items-center"> <input type="checkbox" id={`trans-cat-inc-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cat-inc-${catName}`} className={`text-xs select-none cursor-pointer ${selectedCategories.includes(catName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{catName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій надходжень</p>}
                         </div>
                    </div>
                    {/* Колонка 3: Категорії Витрат */}
@@ -375,7 +392,7 @@ const TransactionsPage: React.FC = () => {
                              </button>
                         </div>
                         <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
-                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && expenseCategories.length > 0 ? expenseCategories.map(catName => ( <div key={`exp-${catName}`} className="flex items-center"> <input type="checkbox" id={`trans-cat-exp-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cat-exp-${catName}`} className="text-xs text-gray-800 select-none cursor-pointer">{catName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій витрат</p>}
+                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && expenseCategories.length > 0 ? expenseCategories.map(catName => ( <div key={`exp-${catName}`} className="flex items-center"> <input type="checkbox" id={`trans-cat-exp-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cat-exp-${catName}`} className={`text-xs select-none cursor-pointer ${selectedCategories.includes(catName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{catName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій витрат</p>}
                         </div>
                    </div>
                    {/* Колонка 4: Контрагенти */}
@@ -387,7 +404,7 @@ const TransactionsPage: React.FC = () => {
                              </button>
                         </div>
                         <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
-                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(counterparties) && counterparties.length > 0 ? counterparties.map(cpName => ( <div key={`cp-${cpName}`} className="flex items-center"> <input type="checkbox" id={`trans-cp-${cpName}`} checked={selectedCounterparties.includes(cpName)} onChange={() => handleCounterpartyChange(cpName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cp-${cpName}`} className="text-xs text-gray-800 select-none cursor-pointer">{cpName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає контрагентів</p>}
+                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(counterparties) && counterparties.length > 0 ? counterparties.map(cpName => ( <div key={`cp-${cpName}`} className="flex items-center"> <input type="checkbox" id={`trans-cp-${cpName}`} checked={selectedCounterparties.includes(cpName)} onChange={() => handleCounterpartyChange(cpName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cp-${cpName}`} className={`text-xs select-none cursor-pointer ${selectedCounterparties.includes(cpName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{cpName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає контрагентів</p>}
                         </div>
                    </div>
                 </div>
@@ -413,7 +430,7 @@ const TransactionsPage: React.FC = () => {
                            <Legend wrapperStyle={{fontSize: "12px"}}/>
                            <Bar dataKey="income" fill="#00C49F" name="Надходження" radius={[4, 4, 0, 0]} />
                            <Bar dataKey="expense" fill="#FF8042" name="Витрати" radius={[4, 4, 0, 0]} />
-                           <Bar dataKey="balance" fill="#8884D8" name="Баланс (кінець міс.)" radius={[4, 4, 0, 0]} />
+                           {processedData.shouldShowBalance && <Bar dataKey="balance" fill="#8884D8" name="Баланс (кінець міс.)" radius={[4, 4, 0, 0]} />}
                          </BarChart>
                       </ResponsiveContainer>
                    ) : ( <p className="text-center text-gray-500 pt-10">Немає даних для відображення звіту за обраними фільтрами.</p> )}
