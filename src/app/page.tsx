@@ -206,7 +206,8 @@ const TransactionsPage: React.FC = () => {
         const totalCategories = incomeCategories.length + expenseCategories.length;
         const allCategoriesSelected = selectedCategories.length === 0 || selectedCategories.length === totalCategories;
         const allCounterpartiesSelected = selectedCounterparties.length === 0 || selectedCounterparties.length === counterparties.length;
-        const shouldShowBalance = allCategoriesSelected && allCounterpartiesSelected;
+        const allTypesSelected = selectedType === 'Всі';
+        const shouldShowBalance = allCategoriesSelected && allCounterpartiesSelected && allTypesSelected;
 
         // 1. Розрахунок початкового балансу
         const balanceDetailsAtStart: BalanceDetails = {};
@@ -350,7 +351,17 @@ const TransactionsPage: React.FC = () => {
                    <div className="md:col-span-1">
                       <label className="block text-xs font-medium text-gray-600 mb-1">Тип</label>
                       <div className="flex rounded border border-gray-300 overflow-hidden shadow-sm">
-                        {(['Всі', 'Надходження', 'Витрата'] as const).map((type, index) => ( <button key={type} onClick={() => setSelectedType(type)} className={`flex-1 px-2 py-1.5 text-sm text-center transition-colors duration-150 ease-in-out ${selectedType === type ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'} ${index > 0 ? 'border-l border-gray-300' : ''}`} > {type} </button> ))}
+                        {(['Всі', 'Надходження', 'Витрата'] as const).map((type, index) => {
+                          const getTypeColors = () => {
+                            if (selectedType !== type) return 'bg-white text-gray-700 hover:bg-gray-100';
+                            switch(type) {
+                              case 'Всі': return 'bg-[#8884D8] text-white';
+                              case 'Надходження': return 'bg-[#00C49F] text-white';
+                              case 'Витрата': return 'bg-[#FF8042] text-white';
+                            }
+                          };
+                          return <button key={type} onClick={() => setSelectedType(type)} className={`flex-1 px-2 py-1.5 text-sm text-center transition-colors duration-150 ease-in-out ${getTypeColors()} ${index > 0 ? 'border-l border-gray-300' : ''}`} > {type} </button>;
+                        })}
                       </div>
                    </div>
                </div>
