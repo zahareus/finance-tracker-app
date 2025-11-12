@@ -221,7 +221,7 @@ const TransactionsPage: React.FC = () => {
             }
         });
 
-        // 2. Фільтруємо транзакції для таблиці
+        // 2. Фільтруємо транзакції
         const filteredTransactionsForPeriod = allTransactions.filter(tx => {
             if (typeof tx.amount !== 'number' || isNaN(tx.amount)) return false;
             const typeMatch = selectedType === 'Всі' || tx.type === selectedType;
@@ -241,17 +241,6 @@ const TransactionsPage: React.FC = () => {
             return true;
         });
 
-        // 2a. Фільтруємо транзакції для графіку (виключаємо переказні категорії якщо не обрані явно)
-        const transferCategories = ['Переказ вхідний', 'Переказ вихідний'];
-        const filteredTransactionsForChart = filteredTransactionsForPeriod.filter(tx => {
-            // Якщо це переказна категорія
-            if (transferCategories.includes(tx.category)) {
-                // Включаємо тільки якщо вона явно обрана
-                return selectedCategories.length > 0 && selectedCategories.includes(tx.category);
-            }
-            return true;
-        });
-
         // 3. Генеруємо місяці
         const allMonthsInRange: { key: string; name: string }[] = [];
         if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) {
@@ -265,13 +254,13 @@ const TransactionsPage: React.FC = () => {
             }
         }
 
-        // 4. Групуємо транзакції для графіку (використовуємо filteredTransactionsForChart)
+        // 4. Групуємо транзакції
         const monthlyActivityMap: { [monthYear: string]: Omit<MonthlyChartData, 'balance' | 'name' | 'balanceDetails'> & { balanceChangeDetails: BalanceDetails } } = {};
         allMonthsInRange.forEach(monthInfo => {
              monthlyActivityMap[monthInfo.key] = { income: 0, expense: 0, incomeDetails: {}, expenseDetails: {}, balanceChangeDetails: {} };
              accountsToConsider.forEach(acc => { monthlyActivityMap[monthInfo.key].balanceChangeDetails[acc] = 0; });
         });
-        filteredTransactionsForChart.forEach(tx => {
+        filteredTransactionsForPeriod.forEach(tx => {
             const txDate = parseDate(tx.date);
             if (txDate) {
                 const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`;
