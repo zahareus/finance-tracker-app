@@ -329,60 +329,6 @@ const TransactionsPage: React.FC = () => {
         );
     };
 
-    // --- Компонент для Кастомної Підказки (Tooltip) ---
-    // Повний CustomTooltip
-    const CustomTooltip = ({ active, payload, label }: any) => {
-        if (active && payload && payload.length && processedData && Array.isArray(processedData.barChartData)) {
-            const currentMonthData = processedData.barChartData.find(d => d.name === label);
-            if (!currentMonthData) return null;
-            const renderDetails = (details: { [key: string]: number }, type: 'income' | 'expense' | 'balance') => {
-                 const colorClass = type === 'income' ? 'text-green-600' : type === 'expense' ? 'text-red-600' : 'text-blue-600';
-                 const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
-                 let detailsToShow: [string, number][];
-                 if (type === 'balance') {
-                     const fullBalanceDetails: BalanceDetails = {};
-                     accountsToConsider.forEach(acc => { fullBalanceDetails[acc] = details[acc] || 0; });
-                     detailsToShow = Object.entries(fullBalanceDetails).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([,a],[,b]) => b - a);
-                     if (detailsToShow.length === 0) {
-                         if (accountsToConsider.length > 0) return <p key={accountsToConsider[0]} className={`text-xs ${colorClass}`}> - {accountsToConsider[0]}: {formatNumber(0)} ₴</p>;
-                         else return <p className="text-xs text-gray-500 italic">- немає рахунків -</p>;
-                     }
-                 }
-                 else {
-                     detailsToShow = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a);
-                     if(detailsToShow.length === 0) return <p className="text-xs text-gray-500 italic">- немає деталей -</p>;
-                 }
-                 return detailsToShow.map(([key, amount]) => ( <p key={key} className={`text-xs ${colorClass}`}> - {key}: {formatNumber(amount)} ₴</p> ));
-            };
-            const incomePayload = payload.find((p: any) => p.dataKey === 'income');
-            const expensePayload = payload.find((p: any) => p.dataKey === 'expense');
-            const balancePayload = payload.find((p: any) => p.dataKey === 'balance');
-            return (
-                <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative">
-                    <p className="font-bold mb-2 text-center">{label}</p>
-                    {processedData.shouldShowBalance && balancePayload && currentMonthData.balanceDetails && (
-                        <>
-                            <p className="text-blue-600 font-semibold">Баланс (кінець міс.): {formatNumber(currentMonthData.balance)} ₴</p>
-                            <div className="pl-2 my-1">{renderDetails(currentMonthData.balanceDetails, 'balance')}</div>
-                        </>
-                    )}
-                    {incomePayload && currentMonthData.income !== 0 && currentMonthData.incomeDetails && (
-                        <>
-                            <p className="text-green-600 font-semibold mt-1">Надходження: {formatNumber(currentMonthData.income)} ₴</p>
-                            <div className="pl-2 my-1">{renderDetails(currentMonthData.incomeDetails, 'income')}</div>
-                        </>
-                    )}
-                    {expensePayload && currentMonthData.expense !== 0 && currentMonthData.expenseDetails && (
-                        <>
-                            <p className="text-red-600 font-semibold mt-1">Витрати: {formatNumber(currentMonthData.expense)} ₴</p>
-                            <div className="pl-2 my-1">{renderDetails(currentMonthData.expenseDetails, 'expense')}</div>
-                        </>
-                    )}
-                </div>
-            );
-        }
-        return null;
-    };
 
 
     // --- РЕНДЕР КОМПОНЕНТА ---
@@ -526,8 +472,7 @@ const TransactionsPage: React.FC = () => {
                            <CartesianGrid strokeDasharray="3 3" />
                            <XAxis dataKey="name" fontSize={12} />
                            <YAxis tickFormatter={(value) => formatNumber(value)} fontSize={12} width={70}/>
-                           {/* **ПОВЕРНУЛИ КАСТОМНИЙ TOOLTIP** */}
-                           <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(206, 212, 218, 0.3)' }} wrapperStyle={{ zIndex: 50 }} />
+                           <Tooltip formatter={(value) => formatNumber(Number(value))} cursor={{ fill: 'rgba(206, 212, 218, 0.3)' }} />
                            <Bar dataKey="income" fill="#00C49F" name="Надходження" radius={[4, 4, 0, 0]} />
                            <Bar dataKey="expense" fill="#FF8042" name="Витрати" radius={[4, 4, 0, 0]} />
                            {processedData.shouldShowBalance && <Bar dataKey="balance" fill="#8884D8" name="Баланс (кінець міс.)" radius={[4, 4, 0, 0]} />}
