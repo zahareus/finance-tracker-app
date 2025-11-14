@@ -214,7 +214,10 @@ const TransactionsPage: React.FC = () => {
         const allCounterpartiesSelected = selectedCounterparties.length === 0 || selectedCounterparties.length === counterparties.length;
         const allProjectsSelected = selectedProjects.length === 0 || selectedProjects.length === projects.length;
         const allTypesSelected = selectedType === 'Всі';
-        const shouldShowBalance = allCategoriesSelected && allCounterpartiesSelected && allProjectsSelected && allTypesSelected;
+        // Баланс показуємо коли: (1) всі фільтри обрані АБО (2) обрано проекти і всі інші фільтри не активні
+        const projectsFilterActive = selectedProjects.length > 0;
+        const otherFiltersInactive = allCategoriesSelected && allCounterpartiesSelected && allTypesSelected;
+        const shouldShowBalance = (allCategoriesSelected && allCounterpartiesSelected && allProjectsSelected && allTypesSelected) || (projectsFilterActive && otherFiltersInactive);
 
         // 1. Розрахунок початкового балансу
         const balanceDetailsAtStart: BalanceDetails = {};
@@ -294,10 +297,37 @@ const TransactionsPage: React.FC = () => {
             return { name: monthInfo.name, income: activity.income, expense: activity.expense, balance: endOfMonthBalance, incomeDetails: activity.incomeDetails, expenseDetails: activity.expenseDetails, balanceDetails: { ...runningBalanceDetails } };
         });
 
-        return { filteredTransactions: filteredTransactionsForPeriod, barChartData, shouldShowBalance };
+        // Підрахунок загальних сум для легенди
+        const totalIncome = filteredTransactionsForPeriod.filter(tx => tx.type === 'Надходження').reduce((sum, tx) => sum + tx.amount, 0);
+        const totalExpense = filteredTransactionsForPeriod.filter(tx => tx.type === 'Витрата').reduce((sum, tx) => sum + tx.amount, 0);
+        const totalBalance = totalIncome - totalExpense;
+
+        return { filteredTransactions: filteredTransactionsForPeriod, barChartData, shouldShowBalance, totalIncome, totalExpense, totalBalance };
 
     }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedCounterparties, selectedProjects, selectedType, accounts, incomeCategories, expenseCategories, counterparties, projects]);
 
+
+    // --- Компонент для Кастомної Легенди ---
+    const CustomLegend = () => {
+        return (
+            <div className="flex justify-center gap-8 mt-4" style={{ fontSize: '24px' }}>
+                <div className="flex items-center gap-2">
+                    <div style={{ width: '20px', height: '20px', backgroundColor: '#00C49F', borderRadius: '4px' }}></div>
+                    <span style={{ fontWeight: 500 }}>Надходження: {formatNumber(processedData.totalIncome)} ₴</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <div style={{ width: '20px', height: '20px', backgroundColor: '#FF8042', borderRadius: '4px' }}></div>
+                    <span style={{ fontWeight: 500 }}>Витрати: {formatNumber(processedData.totalExpense)} ₴</span>
+                </div>
+                {processedData.shouldShowBalance && (
+                    <div className="flex items-center gap-2">
+                        <div style={{ width: '20px', height: '20px', backgroundColor: '#8884D8', borderRadius: '4px' }}></div>
+                        <span style={{ fontWeight: 500 }}>Баланс: {formatNumber(processedData.totalBalance)} ₴</span>
+                    </div>
+                )}
+            </div>
+        );
+    };
 
     // --- Компонент для Кастомної Підказки (Tooltip) ---
     // Повний CustomTooltip
@@ -367,12 +397,15 @@ const TransactionsPage: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-stretch pt-2">
                     {/* Колонка 1: Рахунки */}
                     <div className="flex flex-col">
-                       <div className="flex justify-between items-center mb-1 flex-shrink-0">
-                           <label className="block text-sm font-medium text-gray-700">Рахунки</label>
-                           {/* **ОНОВЛЕНО КОЛІР** */}
-                           <button onClick={handleSelectAllAccounts} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
-                               {accounts.length > 0 && selectedAccounts.length === accounts.length ? 'Зняти всі' : 'Вибрати всі'}
-                           </button>
+                       <div className="flex items-center mb-1 flex-shrink-0">
+                           <input
+                             type="checkbox"
+                             id="select-all-accounts"
+                             checked={accounts.length > 0 && selectedAccounts.length === accounts.length}
+                             onChange={handleSelectAllAccounts}
+                             className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"
+                           />
+                           <label htmlFor="select-all-accounts" className="block text-sm font-medium text-gray-700 cursor-pointer">Рахунки</label>
                        </div>
                        <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => ( <div key={acc} className="flex items-center"> <input type="checkbox" id={`trans-acc-${acc}`} checked={selectedAccounts.includes(acc)} onChange={() => handleAccountChange(acc)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-acc-${acc}`} className={`text-xs select-none cursor-pointer ${selectedAccounts.includes(acc) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{acc}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>}
@@ -380,12 +413,15 @@ const TransactionsPage: React.FC = () => {
                    </div>
                    {/* Колонка 2: Категорії Надходжень */}
                    <div className="flex flex-col">
-                        <div className='flex justify-between items-center mb-1 flex-shrink-0'>
-                            <label className="block text-sm font-medium text-gray-700">Категорії (Надходження)</label>
-                             {/* **ОНОВЛЕНО КОЛІР** */}
-                             <button onClick={handleSelectAllIncomeCategories} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
-                               {incomeCategories.length > 0 && incomeCategories.every(ic => selectedCategories.includes(ic)) ? 'Зняти всі' : 'Вибрати всі'}
-                             </button>
+                        <div className='flex items-center mb-1 flex-shrink-0'>
+                            <input
+                              type="checkbox"
+                              id="select-all-income"
+                              checked={incomeCategories.length > 0 && incomeCategories.every(ic => selectedCategories.includes(ic))}
+                              onChange={handleSelectAllIncomeCategories}
+                              className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"
+                            />
+                            <label htmlFor="select-all-income" className="block text-sm font-medium text-gray-700 cursor-pointer">Надходження</label>
                         </div>
                         <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && incomeCategories.length > 0 ? incomeCategories.map(catName => ( <div key={`inc-${catName}`} className="flex items-center"> <input type="checkbox" id={`trans-cat-inc-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cat-inc-${catName}`} className={`text-xs select-none cursor-pointer ${selectedCategories.includes(catName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{catName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій надходжень</p>}
@@ -393,12 +429,15 @@ const TransactionsPage: React.FC = () => {
                    </div>
                    {/* Колонка 3: Категорії Витрат */}
                    <div className="flex flex-col">
-                        <div className='flex justify-between items-center mb-1 flex-shrink-0'>
-                            <label className="block text-sm font-medium text-gray-700">Категорії (Витрати)</label>
-                             {/* **ОНОВЛЕНО КОЛІР** */}
-                             <button onClick={handleSelectAllExpenseCategories} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
-                               {expenseCategories.length > 0 && expenseCategories.every(ec => selectedCategories.includes(ec)) ? 'Зняти всі' : 'Вибрати всі'}
-                             </button>
+                        <div className='flex items-center mb-1 flex-shrink-0'>
+                            <input
+                              type="checkbox"
+                              id="select-all-expense"
+                              checked={expenseCategories.length > 0 && expenseCategories.every(ec => selectedCategories.includes(ec))}
+                              onChange={handleSelectAllExpenseCategories}
+                              className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"
+                            />
+                            <label htmlFor="select-all-expense" className="block text-sm font-medium text-gray-700 cursor-pointer">Витрати</label>
                         </div>
                         <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && expenseCategories.length > 0 ? expenseCategories.map(catName => ( <div key={`exp-${catName}`} className="flex items-center"> <input type="checkbox" id={`trans-cat-exp-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cat-exp-${catName}`} className={`text-xs select-none cursor-pointer ${selectedCategories.includes(catName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{catName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій витрат</p>}
@@ -406,11 +445,15 @@ const TransactionsPage: React.FC = () => {
                    </div>
                    {/* Колонка 4: Контрагенти */}
                    <div className="flex flex-col">
-                        <div className='flex justify-between items-center mb-1 flex-shrink-0'>
-                            <label className="block text-sm font-medium text-gray-700">Контрагенти</label>
-                             <button onClick={handleSelectAllCounterparties} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
-                               {counterparties.length > 0 && selectedCounterparties.length === counterparties.length ? 'Зняти всі' : 'Вибрати всі'}
-                             </button>
+                        <div className='flex items-center mb-1 flex-shrink-0'>
+                            <input
+                              type="checkbox"
+                              id="select-all-counterparties"
+                              checked={counterparties.length > 0 && selectedCounterparties.length === counterparties.length}
+                              onChange={handleSelectAllCounterparties}
+                              className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"
+                            />
+                            <label htmlFor="select-all-counterparties" className="block text-sm font-medium text-gray-700 cursor-pointer">Контрагенти</label>
                         </div>
                         <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(counterparties) && counterparties.length > 0 ? counterparties.map(cpName => ( <div key={`cp-${cpName}`} className="flex items-center"> <input type="checkbox" id={`trans-cp-${cpName}`} checked={selectedCounterparties.includes(cpName)} onChange={() => handleCounterpartyChange(cpName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cp-${cpName}`} className={`text-xs select-none cursor-pointer ${selectedCounterparties.includes(cpName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{cpName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає контрагентів</p>}
@@ -418,11 +461,15 @@ const TransactionsPage: React.FC = () => {
                    </div>
                    {/* Колонка 5: Проекти */}
                    <div className="flex flex-col">
-                        <div className='flex justify-between items-center mb-1 flex-shrink-0'>
-                            <label className="block text-sm font-medium text-gray-700">Проекти</label>
-                             <button onClick={handleSelectAllProjects} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
-                               {projects.length > 0 && selectedProjects.length === projects.length ? 'Зняти всі' : 'Вибрати всі'}
-                             </button>
+                        <div className='flex items-center mb-1 flex-shrink-0'>
+                            <input
+                              type="checkbox"
+                              id="select-all-projects"
+                              checked={projects.length > 0 && selectedProjects.length === projects.length}
+                              onChange={handleSelectAllProjects}
+                              className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"
+                            />
+                            <label htmlFor="select-all-projects" className="block text-sm font-medium text-gray-700 cursor-pointer">Проекти</label>
                         </div>
                         <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(projects) && projects.length > 0 ? projects.map(projName => ( <div key={`proj-${projName}`} className="flex items-center"> <input type="checkbox" id={`trans-proj-${projName}`} checked={selectedProjects.includes(projName)} onChange={() => handleProjectChange(projName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-proj-${projName}`} className={`text-xs select-none cursor-pointer ${selectedProjects.includes(projName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{projName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає проектів</p>}
@@ -448,12 +495,12 @@ const TransactionsPage: React.FC = () => {
                            <YAxis tickFormatter={(value) => formatNumber(value)} fontSize={12} width={70}/>
                            {/* **ПОВЕРНУЛИ КАСТОМНИЙ TOOLTIP** */}
                            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(206, 212, 218, 0.3)' }} wrapperStyle={{ zIndex: 50 }} />
-                           <Legend wrapperStyle={{fontSize: "12px"}}/>
                            <Bar dataKey="income" fill="#00C49F" name="Надходження" radius={[4, 4, 0, 0]} />
                            <Bar dataKey="expense" fill="#FF8042" name="Витрати" radius={[4, 4, 0, 0]} />
                            {processedData.shouldShowBalance && <Bar dataKey="balance" fill="#8884D8" name="Баланс (кінець міс.)" radius={[4, 4, 0, 0]} />}
                          </BarChart>
                       </ResponsiveContainer>
+                      <CustomLegend />
                    ) : ( <p className="text-center text-gray-500 pt-10">Немає даних для відображення звіту за обраними фільтрами.</p> )}
               </div>
           )}
