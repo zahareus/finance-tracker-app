@@ -214,7 +214,16 @@ const TransactionsPage: React.FC = () => {
         const allCounterpartiesSelected = selectedCounterparties.length === 0 || selectedCounterparties.length === counterparties.length;
         const allProjectsSelected = selectedProjects.length === 0 || selectedProjects.length === projects.length;
         const allTypesSelected = selectedType === 'Всі';
-        const shouldShowBalance = allCategoriesSelected && allCounterpartiesSelected && allProjectsSelected && allTypesSelected;
+
+        // Баланс показується, якщо:
+        // 1. Всі фільтри вибрані або не активні
+        // 2. АБО обрано проекти без інших фільтрів
+        const onlyProjectsSelected = selectedProjects.length > 0 &&
+                                      selectedCategories.length === 0 &&
+                                      selectedCounterparties.length === 0 &&
+                                      selectedAccounts.length === 0 &&
+                                      allTypesSelected;
+        const shouldShowBalance = (allCategoriesSelected && allCounterpartiesSelected && allProjectsSelected && allTypesSelected) || onlyProjectsSelected;
 
         // 1. Розрахунок початкового балансу
         const balanceDetailsAtStart: BalanceDetails = {};
@@ -298,6 +307,20 @@ const TransactionsPage: React.FC = () => {
 
     }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedCounterparties, selectedProjects, selectedType, accounts, incomeCategories, expenseCategories, counterparties, projects]);
 
+    // --- Розрахунок загальних сум для відображення під графіком ---
+    const totalSums = useMemo(() => {
+        const income = processedData.filteredTransactions
+            .filter(tx => tx.type === 'Надходження')
+            .reduce((sum, tx) => sum + tx.amount, 0);
+
+        const expense = processedData.filteredTransactions
+            .filter(tx => tx.type === 'Витрата')
+            .reduce((sum, tx) => sum + tx.amount, 0);
+
+        const balance = income - expense;
+
+        return { income, expense, balance };
+    }, [processedData.filteredTransactions]);
 
     // --- Компонент для Кастомної Підказки (Tooltip) ---
     // Повний CustomTooltip
@@ -381,7 +404,7 @@ const TransactionsPage: React.FC = () => {
                    {/* Колонка 2: Категорії Надходжень */}
                    <div className="flex flex-col">
                         <div className='flex justify-between items-center mb-1 flex-shrink-0'>
-                            <label className="block text-sm font-medium text-gray-700">Категорії (Надходження)</label>
+                            <label className="block text-sm font-medium text-gray-700">Надходження</label>
                              {/* **ОНОВЛЕНО КОЛІР** */}
                              <button onClick={handleSelectAllIncomeCategories} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
                                {incomeCategories.length > 0 && incomeCategories.every(ic => selectedCategories.includes(ic)) ? 'Зняти всі' : 'Вибрати всі'}
@@ -394,7 +417,7 @@ const TransactionsPage: React.FC = () => {
                    {/* Колонка 3: Категорії Витрат */}
                    <div className="flex flex-col">
                         <div className='flex justify-between items-center mb-1 flex-shrink-0'>
-                            <label className="block text-sm font-medium text-gray-700">Категорії (Витрати)</label>
+                            <label className="block text-sm font-medium text-gray-700">Витрати</label>
                              {/* **ОНОВЛЕНО КОЛІР** */}
                              <button onClick={handleSelectAllExpenseCategories} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
                                {expenseCategories.length > 0 && expenseCategories.every(ec => selectedCategories.includes(ec)) ? 'Зняти всі' : 'Вибрати всі'}
@@ -455,6 +478,30 @@ const TransactionsPage: React.FC = () => {
                          </BarChart>
                       </ResponsiveContainer>
                    ) : ( <p className="text-center text-gray-500 pt-10">Немає даних для відображення звіту за обраними фільтрами.</p> )}
+
+                   {/* --- Блок із загальними сумами --- */}
+                   {processedData.barChartData.length > 0 && (
+                       <div className="mt-6 flex justify-center gap-8 flex-wrap">
+                           <div className="text-center">
+                               <p className="text-sm text-gray-600 mb-1">Надходження</p>
+                               <p className="text-2xl font-bold" style={{ color: '#00C49F' }}>
+                                   {formatNumber(totalSums.income)} ₴
+                               </p>
+                           </div>
+                           <div className="text-center">
+                               <p className="text-sm text-gray-600 mb-1">Витрати</p>
+                               <p className="text-2xl font-bold" style={{ color: '#FF8042' }}>
+                                   {formatNumber(totalSums.expense)} ₴
+                               </p>
+                           </div>
+                           <div className="text-center">
+                               <p className="text-sm text-gray-600 mb-1">Баланс</p>
+                               <p className="text-2xl font-bold" style={{ color: '#8884D8' }}>
+                                   {formatNumber(totalSums.balance)} ₴
+                               </p>
+                           </div>
+                       </div>
+                   )}
               </div>
           )}
           {/* --- Кінець Графіка --- */}
