@@ -14,6 +14,7 @@ interface Transaction {
   category: string;
   description: string;
   counterparty?: string; // Опціональне поле контрагента
+  project?: string; // Опціональне поле проекту
 }
 interface CategoryInfo {
     name: string;
@@ -103,6 +104,7 @@ const TransactionsPage: React.FC = () => {
     const [accounts, setAccounts] = useState<string[]>([]);
     const [categories, setCategories] = useState<CategoryInfo[]>([]);
     const [counterparties, setCounterparties] = useState<string[]>([]);
+    const [projects, setProjects] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
     // Повна функція getInitialDates
@@ -120,6 +122,7 @@ const TransactionsPage: React.FC = () => {
     const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
     const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
     const [selectedCounterparties, setSelectedCounterparties] = useState<string[]>([]);
+    const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
     const [selectedType, setSelectedType] = useState<string>('Всі');
 
     // --- Завантаження даних ---
@@ -131,12 +134,13 @@ const TransactionsPage: React.FC = () => {
              const response = await fetch('/api/sheet-data');
              if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
              const data = await response.json();
-             if (!Array.isArray(data.transactions) || !Array.isArray(data.accounts) || !Array.isArray(data.categories) || !Array.isArray(data.counterparties)) { throw new Error("Invalid data structure."); }
-             const cleanedTransactions = data.transactions.map((tx: any) => ({ date: typeof tx.date === 'string' ? tx.date.trim() : null, amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0, type: String(tx?.type || '').trim(), account: String(tx?.account || '').trim(), category: String(tx?.category || '').trim(), description: String(tx?.description || '').trim(), counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '', })).filter((tx: Transaction, index: number) => { const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount); if (!isValid) console.warn(`Workspace_DATA: Invalid transaction structure at raw index ${index}:`, data.transactions[index], 'Resulted in:', tx); return isValid; });
+             if (!Array.isArray(data.transactions) || !Array.isArray(data.accounts) || !Array.isArray(data.categories) || !Array.isArray(data.counterparties) || !Array.isArray(data.projects)) { throw new Error("Invalid data structure."); }
+             const cleanedTransactions = data.transactions.map((tx: any) => ({ date: typeof tx.date === 'string' ? tx.date.trim() : null, amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0, type: String(tx?.type || '').trim(), account: String(tx?.account || '').trim(), category: String(tx?.category || '').trim(), description: String(tx?.description || '').trim(), counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '', project: tx?.project ? String(tx.project).trim() : '', })).filter((tx: Transaction, index: number) => { const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount); if (!isValid) console.warn(`Workspace_DATA: Invalid transaction structure at raw index ${index}:`, data.transactions[index], 'Resulted in:', tx); return isValid; });
              const cleanedAccounts = data.accounts.flat().map((acc: any) => String(acc || '').trim()).filter(Boolean);
              const cleanedCategories = data.categories.map((cat: any) => ({ name: String(cat?.name || '').trim(), type: String(cat?.type || '').trim() })).filter((cat: CategoryInfo) => cat.name && (cat.type === 'Надходження' || cat.type === 'Витрата'));
              const cleanedCounterparties = data.counterparties.flat().map((cp: any) => String(cp || '').trim()).filter(Boolean);
-             setAllTransactions(cleanedTransactions); setAccounts(cleanedAccounts); setCategories(cleanedCategories); setCounterparties(cleanedCounterparties);
+             const cleanedProjects = data.projects.flat().map((proj: any) => String(proj || '').trim()).filter(Boolean);
+             setAllTransactions(cleanedTransactions); setAccounts(cleanedAccounts); setCategories(cleanedCategories); setCounterparties(cleanedCounterparties); setProjects(cleanedProjects);
            } catch (err) { setError(err instanceof Error ? err.message : 'An unknown error occurred.'); console.error("Failed to fetch data:", err); }
            finally { setIsLoading(false); }
         };
@@ -150,6 +154,8 @@ const TransactionsPage: React.FC = () => {
     const handleCategoryChange = useCallback((category: string) => { setSelectedCategories(prev => prev.includes(category) ? prev.filter(c => c !== category) : [...prev, category]); }, []);
     const handleCounterpartyChange = useCallback((counterparty: string) => { setSelectedCounterparties(prev => prev.includes(counterparty) ? prev.filter(cp => cp !== counterparty) : [...prev, counterparty]); }, []);
     const handleSelectAllCounterparties = useCallback(() => { setSelectedCounterparties(prev => prev.length === counterparties.length ? [] : counterparties); }, [counterparties]);
+    const handleProjectChange = useCallback((project: string) => { setSelectedProjects(prev => prev.includes(project) ? prev.filter(p => p !== project) : [...prev, project]); }, []);
+    const handleSelectAllProjects = useCallback(() => { setSelectedProjects(prev => prev.length === projects.length ? [] : projects); }, [projects]);
     const incomeCategories = useMemo(() => categories.filter(c => c.type === 'Надходження').map(c => c.name), [categories]);
     const expenseCategories = useMemo(() => categories.filter(c => c.type === 'Витрата').map(c => c.name), [categories]);
     const handleSelectAllIncomeCategories = useCallback(() => { const otherSelected = selectedCategories.filter(sc => !incomeCategories.includes(sc)); const allIncomeSelected = incomeCategories.length > 0 && incomeCategories.every(ic => selectedCategories.includes(ic)); if (allIncomeSelected) { setSelectedCategories(otherSelected); } else { setSelectedCategories(Array.from(new Set([...otherSelected, ...incomeCategories]))); } }, [incomeCategories, selectedCategories]);
@@ -206,8 +212,9 @@ const TransactionsPage: React.FC = () => {
         const totalCategories = incomeCategories.length + expenseCategories.length;
         const allCategoriesSelected = selectedCategories.length === 0 || selectedCategories.length === totalCategories;
         const allCounterpartiesSelected = selectedCounterparties.length === 0 || selectedCounterparties.length === counterparties.length;
+        const allProjectsSelected = selectedProjects.length === 0 || selectedProjects.length === projects.length;
         const allTypesSelected = selectedType === 'Всі';
-        const shouldShowBalance = allCategoriesSelected && allCounterpartiesSelected && allTypesSelected;
+        const shouldShowBalance = allCategoriesSelected && allCounterpartiesSelected && allProjectsSelected && allTypesSelected;
 
         // 1. Розрахунок початкового балансу
         const balanceDetailsAtStart: BalanceDetails = {};
@@ -232,6 +239,8 @@ const TransactionsPage: React.FC = () => {
             if (!categoryMatch) return false;
             const counterpartyMatch = selectedCounterparties.length === 0 || (tx.counterparty && selectedCounterparties.includes(tx.counterparty));
             if (!counterpartyMatch) return false;
+            const projectMatch = selectedProjects.length === 0 || (tx.project && selectedProjects.includes(tx.project));
+            if (!projectMatch) return false;
             const txDate = parseDate(tx.date);
             if (!txDate) return false; // Ігноруємо транзакції без дати
             const startDateMatch = !startFilterDate || txDate >= startFilterDate;
@@ -287,7 +296,7 @@ const TransactionsPage: React.FC = () => {
 
         return { filteredTransactions: filteredTransactionsForPeriod, barChartData, shouldShowBalance };
 
-    }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedCounterparties, selectedType, accounts, incomeCategories, expenseCategories, counterparties]);
+    }, [allTransactions, startDate, endDate, selectedAccounts, selectedCategories, selectedCounterparties, selectedProjects, selectedType, accounts, incomeCategories, expenseCategories, counterparties, projects]);
 
 
     // --- Компонент для Кастомної Підказки (Tooltip) ---
@@ -355,7 +364,7 @@ const TransactionsPage: React.FC = () => {
                    </div>
                </div>
                 {/* --- Другий Рядок Фільтрів --- */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-stretch pt-2">
                     {/* Колонка 1: Рахунки */}
                     <div className="flex flex-col">
                        <div className="flex justify-between items-center mb-1 flex-shrink-0">
@@ -407,6 +416,18 @@ const TransactionsPage: React.FC = () => {
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(counterparties) && counterparties.length > 0 ? counterparties.map(cpName => ( <div key={`cp-${cpName}`} className="flex items-center"> <input type="checkbox" id={`trans-cp-${cpName}`} checked={selectedCounterparties.includes(cpName)} onChange={() => handleCounterpartyChange(cpName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cp-${cpName}`} className={`text-xs select-none cursor-pointer ${selectedCounterparties.includes(cpName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{cpName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає контрагентів</p>}
                         </div>
                    </div>
+                   {/* Колонка 5: Проекти */}
+                   <div className="flex flex-col">
+                        <div className='flex justify-between items-center mb-1 flex-shrink-0'>
+                            <label className="block text-sm font-medium text-gray-700">Проекти</label>
+                             <button onClick={handleSelectAllProjects} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
+                               {projects.length > 0 && selectedProjects.length === projects.length ? 'Зняти всі' : 'Вибрати всі'}
+                             </button>
+                        </div>
+                        <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
+                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(projects) && projects.length > 0 ? projects.map(projName => ( <div key={`proj-${projName}`} className="flex items-center"> <input type="checkbox" id={`trans-proj-${projName}`} checked={selectedProjects.includes(projName)} onChange={() => handleProjectChange(projName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-proj-${projName}`} className={`text-xs select-none cursor-pointer ${selectedProjects.includes(projName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{projName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає проектів</p>}
+                        </div>
+                   </div>
                 </div>
           </div>
           {/* --- Кінець ФІЛЬТРІВ --- */}
@@ -455,12 +476,13 @@ const TransactionsPage: React.FC = () => {
                        <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Категорія</th>
                        <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Рахунок</th>
                        <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Контрагент</th>
+                       <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Проект</th>
                      </tr>
                    </thead>
                    <tbody className="bg-white divide-y divide-gray-200">
                      {/* Сортування */}
                      {processedData.filteredTransactions.length === 0 ? (
-                       <tr> <td colSpan={6} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
+                       <tr> <td colSpan={7} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
                      ) : (
                        processedData.filteredTransactions
                          .sort((a, b) => { const dateA = parseDate(a.date); const dateB = parseDate(b.date); if (!dateA && !dateB) return 0; if (!dateA) return 1; if (!dateB) return -1; return dateB.getTime() - dateA.getTime(); })
@@ -472,6 +494,7 @@ const TransactionsPage: React.FC = () => {
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.category}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.account}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.counterparty || '-'}</td>
+                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.project || '-'}</td>
                            </tr>
                          ))
                      )}

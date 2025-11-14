@@ -49,10 +49,11 @@ export async function GET() {
     const sheets = google.sheets({ version: 'v4', auth });
 
     const ranges = [
-      'Transactions!A2:G',
+      'Transactions!A2:H',
       'Accounts!A2:A',
       'Categories!A2:B',
       'Agents!A2:A',
+      'Projects!A2:A',
     ];
 
     const response = await sheets.spreadsheets.values.batchGet({
@@ -62,7 +63,7 @@ export async function GET() {
     });
 
     if (!response.data.valueRanges || response.data.valueRanges.length === 0) {
-        return NextResponse.json({ transactions: [], accounts: [], categories: [], counterparties: [] });
+        return NextResponse.json({ transactions: [], accounts: [], categories: [], counterparties: [], projects: [] });
     }
 
     // Обробка транзакцій
@@ -75,6 +76,7 @@ export async function GET() {
       category: row[4] || '',
       description: row[5] || '',
       counterparty: row[6] || '', // Опціональне поле контрагента
+      project: row[7] || '', // Опціональне поле проекту
     })).filter(t => t.date); // Відкидаємо рядки без дати
 
     // Обробка рахунків
@@ -92,11 +94,16 @@ export async function GET() {
     const rawCounterparties = response.data.valueRanges[3]?.values || [];
     const counterparties = rawCounterparties.flat().filter(Boolean); // Аналогічно до accounts
 
+    // Обробка проектів
+    const rawProjects = response.data.valueRanges[4]?.values || [];
+    const projects = rawProjects.flat().filter(Boolean); // Аналогічно до accounts
+
     return NextResponse.json({
       transactions,
       accounts,
       categories,
-      counterparties
+      counterparties,
+      projects
     });
 
   } catch (error) {
