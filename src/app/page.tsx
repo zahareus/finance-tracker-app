@@ -357,7 +357,29 @@ const TransactionsPage: React.FC = () => {
             const incomePayload = payload.find((p: any) => p.dataKey === 'income');
             const expensePayload = payload.find((p: any) => p.dataKey === 'expense');
             const balancePayload = payload.find((p: any) => p.dataKey === 'balance');
-            return ( <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative"> <p className="font-bold mb-2 text-center">{label}</p> {processedData.shouldShowBalance && balancePayload && currentMonthData.balanceDetails && ( <> <p className="text-blue-600 font-semibold">Баланс (кінець міс.): {formatNumber(currentMonthData.balance)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.balanceDetails, 'balance')}</div> </> )} {incomePayload && currentMonthData.income !== 0 && currentMonthData.incomeDetails && ( <> <p className="text-green-600 font-semibold mt-1">Надходження: {formatNumber(currentMonthData.income)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.incomeDetails, 'income')}</div> </> )} {expensePayload && currentMonthData.expense !== 0 && currentMonthData.expenseDetails && ( <> <p className="text-red-600 font-semibold mt-1">Витрати: {formatNumber(currentMonthData.expense)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.expenseDetails, 'expense')}</div> </> )} </div> );
+            return (
+                <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative">
+                    <p className="font-bold mb-2 text-center">{label}</p>
+                    {processedData.shouldShowBalance && balancePayload && currentMonthData.balanceDetails && (
+                        <>
+                            <p className="text-blue-600 font-semibold">Баланс (кінець міс.): {formatNumber(currentMonthData.balance)} ₴</p>
+                            <div className="pl-2 my-1">{renderDetails(currentMonthData.balanceDetails, 'balance')}</div>
+                        </>
+                    )}
+                    {incomePayload && currentMonthData.income !== 0 && currentMonthData.incomeDetails && (
+                        <>
+                            <p className="text-green-600 font-semibold mt-1">Надходження: {formatNumber(currentMonthData.income)} ₴</p>
+                            <div className="pl-2 my-1">{renderDetails(currentMonthData.incomeDetails, 'income')}</div>
+                        </>
+                    )}
+                    {expensePayload && currentMonthData.expense !== 0 && currentMonthData.expenseDetails && (
+                        <>
+                            <p className="text-red-600 font-semibold mt-1">Витрати: {formatNumber(currentMonthData.expense)} ₴</p>
+                            <div className="pl-2 my-1">{renderDetails(currentMonthData.expenseDetails, 'expense')}</div>
+                        </>
+                    )}
+                </div>
+            );
         }
         return null;
     };
