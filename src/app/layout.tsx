@@ -85,8 +85,8 @@ export default function RootLayout({
           {/* Змінив h-16 на h-auto та додав min-h-16 для гнучкості */}
           <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-16 flex items-center justify-between gap-4 flex-wrap md:flex-nowrap"> {/* Додав flex-wrap для мобільних */}
 
-             {/* Логотип (зліва) */}
-             <div className="flex-shrink-0 py-2"> {/* Додав padding */}
+             {/* Логотип (відцентрований на мобільних, зліва на десктопі) */}
+             <div className="w-full md:w-auto flex justify-center md:justify-start flex-shrink-0 py-2"> {/* Додав центрування */}
                 <Link href="/transactions" className="flex items-center">
                     <Image src="/logo.png" alt="Логотип Місцеві гроші" width={300} height={75} priority className="h-10 md:h-12 w-auto" /> {/* Зменшив висоту */}
                 </Link>
@@ -105,12 +105,19 @@ export default function RootLayout({
                            <span className="text-xs md:text-sm font-medium text-gray-500">Ранвей: </span>
                            <span className="text-base md:text-lg font-semibold text-[#8884D8]">{headerMetrics.runwayMonths === null ? 'N/A' : headerMetrics.runwayMonths === Infinity ? '∞' : headerMetrics.runwayMonths.toFixed(1)} міс.</span>
                        </div>
+                       {/* Посилання на Джерело (показується в рядку на мобільних) */}
+                       <div className="md:hidden">
+                          <a href="https://docs.google.com/spreadsheets/d/1jl54qnar1R0nDdAIxJF6uN4eMPXacOfqasNAuwm8BNk/edit" target="_blank" rel="noopener noreferrer"
+                             className="text-xs font-medium text-[#8884D8] hover:text-[#6c63b8] hover:underline whitespace-nowrap"
+                          >
+                             Джерело
+                          </a>
+                       </div>
                    </>
                )}
              </div>
 
-             {/* Посилання на Джерело (праворуч) */}
-             {/* ПРИХОВАНО НА МОБІЛЬНИХ (hidden md:block) */}
+             {/* Посилання на Джерело (праворуч на десктопі) */}
              <div className="hidden md:block flex-shrink-0 py-2 order-2 md:order-3"> {/* Змінив порядок для flex-wrap */}
                 <a href="https://docs.google.com/spreadsheets/d/1jl54qnar1R0nDdAIxJF6uN4eMPXacOfqasNAuwm8BNk/edit" target="_blank" rel="noopener noreferrer"
                    className="text-sm font-medium text-[#8884D8] hover:text-[#6c63b8] hover:underline whitespace-nowrap"
