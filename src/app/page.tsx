@@ -339,8 +339,19 @@ const TransactionsPage: React.FC = () => {
                  const colorClass = type === 'income' ? 'text-green-600' : type === 'expense' ? 'text-red-600' : 'text-blue-600';
                  const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
                  let detailsToShow: [string, number][];
-                 if (type === 'balance') { const fullBalanceDetails: BalanceDetails = {}; accountsToConsider.forEach(acc => { fullBalanceDetails[acc] = details[acc] || 0; }); detailsToShow = Object.entries(fullBalanceDetails).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([,a],[,b]) => b - a); if (detailsToShow.length === 0) { if (accountsToConsider.length > 0) return <p key={accountsToConsider[0]} className={`text-xs ${colorClass}`}> - {accountsToConsider[0]}: {formatNumber(0)} ₴</p>; else return <p className="text-xs text-gray-500 italic">- немає рахунків -</p>; } }
-                 else { detailsToShow = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a); if(detailsToShow.length === 0) return <p className="text-xs text-gray-500 italic">- немає деталей -</p>; }
+                 if (type === 'balance') {
+                     const fullBalanceDetails: BalanceDetails = {};
+                     accountsToConsider.forEach(acc => { fullBalanceDetails[acc] = details[acc] || 0; });
+                     detailsToShow = Object.entries(fullBalanceDetails).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([,a],[,b]) => b - a);
+                     if (detailsToShow.length === 0) {
+                         if (accountsToConsider.length > 0) return <p key={accountsToConsider[0]} className={`text-xs ${colorClass}`}> - {accountsToConsider[0]}: {formatNumber(0)} ₴</p>;
+                         else return <p className="text-xs text-gray-500 italic">- немає рахунків -</p>;
+                     }
+                 }
+                 else {
+                     detailsToShow = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a);
+                     if(detailsToShow.length === 0) return <p className="text-xs text-gray-500 italic">- немає деталей -</p>;
+                 }
                  return detailsToShow.map(([key, amount]) => ( <p key={key} className={`text-xs ${colorClass}`}> - {key}: {formatNumber(amount)} ₴</p> ));
             };
             const incomePayload = payload.find((p: any) => p.dataKey === 'income');
