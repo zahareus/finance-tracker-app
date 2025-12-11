@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-    ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend
+    ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+    PieChart, Pie, Cell
 } from 'recharts';
 
 // --- Типи даних ---
@@ -110,9 +111,9 @@ const TransactionsPage: React.FC = () => {
     // Повна функція getInitialDates
     const getInitialDates = useCallback(() => {
         const today = new Date();
-        const thirtyDaysAgo = new Date(today);
-        thirtyDaysAgo.setDate(today.getDate() - 30);
-        return { start: formatDateForInput(thirtyDaysAgo), end: formatDateForInput(today) }
+        const hundredDaysAgo = new Date(today);
+        hundredDaysAgo.setDate(today.getDate() - 99); // 100 днів включно з сьогодні
+        return { start: formatDateForInput(hundredDaysAgo), end: formatDateForInput(today) }
     }, []); // Використовуємо useCallback
 
     const initialDates = useMemo(() => getInitialDates(), [getInitialDates]); // Викликаємо один раз
@@ -124,6 +125,19 @@ const TransactionsPage: React.FC = () => {
     const [selectedCounterparties, setSelectedCounterparties] = useState<string[]>([]);
     const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
     const [selectedType, setSelectedType] = useState<string>('Всі');
+
+    // Стан для згортання фільтрів на мобільній версії
+    const [expandedFilters, setExpandedFilters] = useState<{[key: string]: boolean}>({
+        accounts: false,
+        income: false,
+        expense: false,
+        counterparties: false,
+        projects: false,
+    });
+
+    // Стан для сортування таблиці
+    const [sortColumn, setSortColumn] = useState<string>('date');
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
     // --- Завантаження даних ---
     // Повний useEffect
@@ -160,6 +174,24 @@ const TransactionsPage: React.FC = () => {
     const expenseCategories = useMemo(() => categories.filter(c => c.type === 'Витрата').map(c => c.name), [categories]);
     const handleSelectAllIncomeCategories = useCallback(() => { const otherSelected = selectedCategories.filter(sc => !incomeCategories.includes(sc)); const allIncomeSelected = incomeCategories.length > 0 && incomeCategories.every(ic => selectedCategories.includes(ic)); if (allIncomeSelected) { setSelectedCategories(otherSelected); } else { setSelectedCategories(Array.from(new Set([...otherSelected, ...incomeCategories]))); } }, [incomeCategories, selectedCategories]);
     const handleSelectAllExpenseCategories = useCallback(() => { const otherSelected = selectedCategories.filter(sc => !expenseCategories.includes(sc)); const allExpenseSelected = expenseCategories.length > 0 && expenseCategories.every(ec => selectedCategories.includes(ec)); if (allExpenseSelected) { setSelectedCategories(otherSelected); } else { setSelectedCategories(Array.from(new Set([...otherSelected, ...expenseCategories]))); } }, [expenseCategories, selectedCategories]);
+
+    // Обробник для переключення фільтрів на мобільній версії
+    const toggleFilter = useCallback((filterKey: string) => {
+        setExpandedFilters(prev => ({
+            ...prev,
+            [filterKey]: !prev[filterKey]
+        }));
+    }, []);
+
+    // Обробник сортування таблиці
+    const handleSort = useCallback((column: string) => {
+        if (sortColumn === column) {
+            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortColumn(column);
+            setSortDirection(column === 'date' ? 'desc' : 'asc');
+        }
+    }, [sortColumn]);
 
     // **ПОВНА ТА ВИПРАВЛЕНА функція setDateRangePreset**
     const setDateRangePreset = useCallback((preset: 'last_month' | 'last_3_months' | 'last_12_months') => {
@@ -322,6 +354,33 @@ const TransactionsPage: React.FC = () => {
         return { income, expense, balance };
     }, [processedData.filteredTransactions]);
 
+    // --- Розрахунок даних для pie charts розподілу по категоріям ---
+    const categoryDistribution = useMemo(() => {
+        const incomeByCategory: { [key: string]: number } = {};
+        const expenseByCategory: { [key: string]: number } = {};
+
+        processedData.filteredTransactions.forEach(tx => {
+            if (tx.type === 'Надходження') {
+                incomeByCategory[tx.category] = (incomeByCategory[tx.category] || 0) + tx.amount;
+            } else if (tx.type === 'Витрата') {
+                expenseByCategory[tx.category] = (expenseByCategory[tx.category] || 0) + tx.amount;
+            }
+        });
+
+        const incomeData = Object.entries(incomeByCategory)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value);
+
+        const expenseData = Object.entries(expenseByCategory)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value);
+
+        return { incomeData, expenseData };
+    }, [processedData.filteredTransactions]);
+
+    // Кольори для pie charts
+    const PIE_COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FFC658', '#FF7C7C', '#A4DE6C', '#D0ED57'];
+
     // --- Компонент для Кастомної Підказки (Tooltip) ---
     // Повний CustomTooltip
     const CustomTooltip = ({ active, payload, label }: any) => {
@@ -387,67 +446,94 @@ const TransactionsPage: React.FC = () => {
                    </div>
                </div>
                 {/* --- Другий Рядок Фільтрів --- */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-stretch pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-start pt-2">
                     {/* Колонка 1: Рахунки */}
                     <div className="flex flex-col">
-                       <div className="flex justify-between items-center mb-1 flex-shrink-0">
-                           <label className="block text-sm font-medium text-gray-700">Рахунки</label>
-                           {/* **ОНОВЛЕНО КОЛІР** */}
-                           <button onClick={handleSelectAllAccounts} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
+                       <div
+                         className="flex justify-between items-center mb-1 flex-shrink-0 cursor-pointer sm:cursor-default"
+                         onClick={() => toggleFilter('accounts')}
+                       >
+                           <label className="block text-sm font-medium text-gray-700 flex items-center gap-1 cursor-pointer sm:cursor-default">
+                             Рахунки
+                             <span className="sm:hidden text-gray-400 text-xs">{expandedFilters.accounts ? '▲' : '▼'}</span>
+                           </label>
+                           <button onClick={(e) => { e.stopPropagation(); handleSelectAllAccounts(); }} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
                                {accounts.length > 0 && selectedAccounts.length === accounts.length ? 'Зняти всі' : 'Вибрати всі'}
                            </button>
                        </div>
-                       <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
+                       <div className={`border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto lg:max-h-[200px] lg:h-[200px] ${expandedFilters.accounts ? 'block' : 'hidden'} sm:block`}>
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => ( <div key={acc} className="flex items-center"> <input type="checkbox" id={`trans-acc-${acc}`} checked={selectedAccounts.includes(acc)} onChange={() => handleAccountChange(acc)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-acc-${acc}`} className={`text-xs select-none cursor-pointer ${selectedAccounts.includes(acc) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{acc}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>}
                        </div>
                    </div>
                    {/* Колонка 2: Категорії Надходжень */}
                    <div className="flex flex-col">
-                        <div className='flex justify-between items-center mb-1 flex-shrink-0'>
-                            <label className="block text-sm font-medium text-gray-700">Надходження</label>
-                             {/* **ОНОВЛЕНО КОЛІР** */}
-                             <button onClick={handleSelectAllIncomeCategories} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
+                        <div
+                          className='flex justify-between items-center mb-1 flex-shrink-0 cursor-pointer sm:cursor-default'
+                          onClick={() => toggleFilter('income')}
+                        >
+                            <label className="block text-sm font-medium text-gray-700 flex items-center gap-1 cursor-pointer sm:cursor-default">
+                              Надходження
+                              <span className="sm:hidden text-gray-400 text-xs">{expandedFilters.income ? '▲' : '▼'}</span>
+                            </label>
+                             <button onClick={(e) => { e.stopPropagation(); handleSelectAllIncomeCategories(); }} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
                                {incomeCategories.length > 0 && incomeCategories.every(ic => selectedCategories.includes(ic)) ? 'Зняти всі' : 'Вибрати всі'}
                              </button>
                         </div>
-                        <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
+                        <div className={`border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto lg:max-h-[200px] lg:h-[200px] ${expandedFilters.income ? 'block' : 'hidden'} sm:block`}>
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && incomeCategories.length > 0 ? incomeCategories.map(catName => ( <div key={`inc-${catName}`} className="flex items-center"> <input type="checkbox" id={`trans-cat-inc-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cat-inc-${catName}`} className={`text-xs select-none cursor-pointer ${selectedCategories.includes(catName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{catName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій надходжень</p>}
                         </div>
                    </div>
                    {/* Колонка 3: Категорії Витрат */}
                    <div className="flex flex-col">
-                        <div className='flex justify-between items-center mb-1 flex-shrink-0'>
-                            <label className="block text-sm font-medium text-gray-700">Витрати</label>
-                             {/* **ОНОВЛЕНО КОЛІР** */}
-                             <button onClick={handleSelectAllExpenseCategories} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
+                        <div
+                          className='flex justify-between items-center mb-1 flex-shrink-0 cursor-pointer sm:cursor-default'
+                          onClick={() => toggleFilter('expense')}
+                        >
+                            <label className="block text-sm font-medium text-gray-700 flex items-center gap-1 cursor-pointer sm:cursor-default">
+                              Витрати
+                              <span className="sm:hidden text-gray-400 text-xs">{expandedFilters.expense ? '▲' : '▼'}</span>
+                            </label>
+                             <button onClick={(e) => { e.stopPropagation(); handleSelectAllExpenseCategories(); }} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
                                {expenseCategories.length > 0 && expenseCategories.every(ec => selectedCategories.includes(ec)) ? 'Зняти всі' : 'Вибрати всі'}
                              </button>
                         </div>
-                        <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
+                        <div className={`border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto lg:max-h-[200px] lg:h-[200px] ${expandedFilters.expense ? 'block' : 'hidden'} sm:block`}>
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && expenseCategories.length > 0 ? expenseCategories.map(catName => ( <div key={`exp-${catName}`} className="flex items-center"> <input type="checkbox" id={`trans-cat-exp-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cat-exp-${catName}`} className={`text-xs select-none cursor-pointer ${selectedCategories.includes(catName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{catName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій витрат</p>}
                         </div>
                    </div>
                    {/* Колонка 4: Контрагенти */}
                    <div className="flex flex-col">
-                        <div className='flex justify-between items-center mb-1 flex-shrink-0'>
-                            <label className="block text-sm font-medium text-gray-700">Контрагенти</label>
-                             <button onClick={handleSelectAllCounterparties} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
+                        <div
+                          className='flex justify-between items-center mb-1 flex-shrink-0 cursor-pointer sm:cursor-default'
+                          onClick={() => toggleFilter('counterparties')}
+                        >
+                            <label className="block text-sm font-medium text-gray-700 flex items-center gap-1 cursor-pointer sm:cursor-default">
+                              Контрагенти
+                              <span className="sm:hidden text-gray-400 text-xs">{expandedFilters.counterparties ? '▲' : '▼'}</span>
+                            </label>
+                             <button onClick={(e) => { e.stopPropagation(); handleSelectAllCounterparties(); }} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
                                {counterparties.length > 0 && selectedCounterparties.length === counterparties.length ? 'Зняти всі' : 'Вибрати всі'}
                              </button>
                         </div>
-                        <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
+                        <div className={`border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto lg:max-h-[200px] lg:h-[200px] ${expandedFilters.counterparties ? 'block' : 'hidden'} sm:block`}>
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(counterparties) && counterparties.length > 0 ? counterparties.map(cpName => ( <div key={`cp-${cpName}`} className="flex items-center"> <input type="checkbox" id={`trans-cp-${cpName}`} checked={selectedCounterparties.includes(cpName)} onChange={() => handleCounterpartyChange(cpName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cp-${cpName}`} className={`text-xs select-none cursor-pointer ${selectedCounterparties.includes(cpName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{cpName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає контрагентів</p>}
                         </div>
                    </div>
                    {/* Колонка 5: Проекти */}
                    <div className="flex flex-col">
-                        <div className='flex justify-between items-center mb-1 flex-shrink-0'>
-                            <label className="block text-sm font-medium text-gray-700">Проекти</label>
-                             <button onClick={handleSelectAllProjects} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
+                        <div
+                          className='flex justify-between items-center mb-1 flex-shrink-0 cursor-pointer sm:cursor-default'
+                          onClick={() => toggleFilter('projects')}
+                        >
+                            <label className="block text-sm font-medium text-gray-700 flex items-center gap-1 cursor-pointer sm:cursor-default">
+                              Проекти
+                              <span className="sm:hidden text-gray-400 text-xs">{expandedFilters.projects ? '▲' : '▼'}</span>
+                            </label>
+                             <button onClick={(e) => { e.stopPropagation(); handleSelectAllProjects(); }} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
                                {projects.length > 0 && selectedProjects.length === projects.length ? 'Зняти всі' : 'Вибрати всі'}
                              </button>
                         </div>
-                        <div className="border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto flex-grow h-full min-h-[40px]">
+                        <div className={`border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto lg:max-h-[200px] lg:h-[200px] ${expandedFilters.projects ? 'block' : 'hidden'} sm:block`}>
                            {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(projects) && projects.length > 0 ? projects.map(projName => ( <div key={`proj-${projName}`} className="flex items-center"> <input type="checkbox" id={`trans-proj-${projName}`} checked={selectedProjects.includes(projName)} onChange={() => handleProjectChange(projName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-proj-${projName}`} className={`text-xs select-none cursor-pointer ${selectedProjects.includes(projName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{projName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає проектів</p>}
                         </div>
                    </div>
@@ -506,6 +592,103 @@ const TransactionsPage: React.FC = () => {
           )}
           {/* --- Кінець Графіка --- */}
 
+          {/* --- Графіки розподілу по категоріям --- */}
+          {!isLoading && !error && (categoryDistribution.incomeData.length > 0 || categoryDistribution.expenseData.length > 0) && (
+              <div className="p-4 border rounded shadow bg-white mb-6">
+                  <h2 className="text-lg font-semibold mb-4 text-center">Розподіл по категоріям</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Pie Chart для надходжень */}
+                      <div className="flex flex-col items-center">
+                          <h3 className="text-md font-medium mb-2" style={{ color: '#00C49F' }}>Надходження</h3>
+                          {categoryDistribution.incomeData.length > 0 ? (
+                              <>
+                                  <ResponsiveContainer width="100%" height={280}>
+                                      <PieChart>
+                                          <Pie
+                                              data={categoryDistribution.incomeData}
+                                              cx="50%"
+                                              cy="50%"
+                                              outerRadius={80}
+                                              fill="#00C49F"
+                                              dataKey="value"
+                                              label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                                              labelLine={true}
+                                          >
+                                              {categoryDistribution.incomeData.map((entry, index) => (
+                                                  <Cell key={`cell-income-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                              ))}
+                                          </Pie>
+                                          <Tooltip
+                                              formatter={(value: number) => [`${formatNumber(value)} ₴`, 'Сума']}
+                                          />
+                                      </PieChart>
+                                  </ResponsiveContainer>
+                                  <div className="mt-2 text-xs text-gray-600 max-h-[120px] overflow-y-auto w-full">
+                                      {categoryDistribution.incomeData.map((item, index) => (
+                                          <div key={`legend-income-${index}`} className="flex items-center gap-2 mb-1">
+                                              <div
+                                                  className="w-3 h-3 rounded-sm flex-shrink-0"
+                                                  style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}
+                                              />
+                                              <span className="truncate">{item.name}</span>
+                                              <span className="ml-auto font-medium">{formatNumber(item.value)} ₴</span>
+                                          </div>
+                                      ))}
+                                  </div>
+                              </>
+                          ) : (
+                              <p className="text-gray-500 text-sm py-10">Немає надходжень за обраний період</p>
+                          )}
+                      </div>
+
+                      {/* Pie Chart для витрат */}
+                      <div className="flex flex-col items-center">
+                          <h3 className="text-md font-medium mb-2" style={{ color: '#FF8042' }}>Витрати</h3>
+                          {categoryDistribution.expenseData.length > 0 ? (
+                              <>
+                                  <ResponsiveContainer width="100%" height={280}>
+                                      <PieChart>
+                                          <Pie
+                                              data={categoryDistribution.expenseData}
+                                              cx="50%"
+                                              cy="50%"
+                                              outerRadius={80}
+                                              fill="#FF8042"
+                                              dataKey="value"
+                                              label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                                              labelLine={true}
+                                          >
+                                              {categoryDistribution.expenseData.map((entry, index) => (
+                                                  <Cell key={`cell-expense-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                              ))}
+                                          </Pie>
+                                          <Tooltip
+                                              formatter={(value: number) => [`${formatNumber(value)} ₴`, 'Сума']}
+                                          />
+                                      </PieChart>
+                                  </ResponsiveContainer>
+                                  <div className="mt-2 text-xs text-gray-600 max-h-[120px] overflow-y-auto w-full">
+                                      {categoryDistribution.expenseData.map((item, index) => (
+                                          <div key={`legend-expense-${index}`} className="flex items-center gap-2 mb-1">
+                                              <div
+                                                  className="w-3 h-3 rounded-sm flex-shrink-0"
+                                                  style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}
+                                              />
+                                              <span className="truncate">{item.name}</span>
+                                              <span className="ml-auto font-medium">{formatNumber(item.value)} ₴</span>
+                                          </div>
+                                      ))}
+                                  </div>
+                              </>
+                          ) : (
+                              <p className="text-gray-500 text-sm py-10">Немає витрат за обраний період</p>
+                          )}
+                      </div>
+                  </div>
+              </div>
+          )}
+          {/* --- Кінець графіків розподілу --- */}
+
 
           {/* --- Таблиця транзакцій --- */}
           {/* Повний JSX Таблиці */}
@@ -517,13 +700,55 @@ const TransactionsPage: React.FC = () => {
                  <table className="min-w-full divide-y divide-gray-200">
                    <thead className="bg-gray-50">
                      <tr>
-                       <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Дата</th>
-                       <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Сума</th>
-                       <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Опис</th>
-                       <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Категорія</th>
-                       <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Рахунок</th>
-                       <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Контрагент</th>
-                       <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Проект</th>
+                       <th
+                         scope="col"
+                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'date' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                         onClick={() => handleSort('date')}
+                       >
+                         Дата {sortColumn === 'date' && (sortDirection === 'asc' ? '↑' : '↓')}
+                       </th>
+                       <th
+                         scope="col"
+                         className={`px-4 py-2 text-right text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'amount' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                         onClick={() => handleSort('amount')}
+                       >
+                         Сума {sortColumn === 'amount' && (sortDirection === 'asc' ? '↑' : '↓')}
+                       </th>
+                       <th
+                         scope="col"
+                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'description' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                         onClick={() => handleSort('description')}
+                       >
+                         Опис {sortColumn === 'description' && (sortDirection === 'asc' ? '↑' : '↓')}
+                       </th>
+                       <th
+                         scope="col"
+                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'category' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                         onClick={() => handleSort('category')}
+                       >
+                         Категорія {sortColumn === 'category' && (sortDirection === 'asc' ? '↑' : '↓')}
+                       </th>
+                       <th
+                         scope="col"
+                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'account' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                         onClick={() => handleSort('account')}
+                       >
+                         Рахунок {sortColumn === 'account' && (sortDirection === 'asc' ? '↑' : '↓')}
+                       </th>
+                       <th
+                         scope="col"
+                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'counterparty' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                         onClick={() => handleSort('counterparty')}
+                       >
+                         Контрагент {sortColumn === 'counterparty' && (sortDirection === 'asc' ? '↑' : '↓')}
+                       </th>
+                       <th
+                         scope="col"
+                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'project' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                         onClick={() => handleSort('project')}
+                       >
+                         Проект {sortColumn === 'project' && (sortDirection === 'asc' ? '↑' : '↓')}
+                       </th>
                      </tr>
                    </thead>
                    <tbody className="bg-white divide-y divide-gray-200">
@@ -531,8 +756,43 @@ const TransactionsPage: React.FC = () => {
                      {processedData.filteredTransactions.length === 0 ? (
                        <tr> <td colSpan={7} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
                      ) : (
-                       processedData.filteredTransactions
-                         .sort((a, b) => { const dateA = parseDate(a.date); const dateB = parseDate(b.date); if (!dateA && !dateB) return 0; if (!dateA) return 1; if (!dateB) return -1; return dateB.getTime() - dateA.getTime(); })
+                       [...processedData.filteredTransactions]
+                         .sort((a, b) => {
+                           let comparison = 0;
+                           switch (sortColumn) {
+                             case 'date':
+                               const dateA = parseDate(a.date);
+                               const dateB = parseDate(b.date);
+                               if (!dateA && !dateB) comparison = 0;
+                               else if (!dateA) comparison = 1;
+                               else if (!dateB) comparison = -1;
+                               else comparison = dateA.getTime() - dateB.getTime();
+                               break;
+                             case 'amount':
+                               const amountA = a.type === 'Витрата' ? -a.amount : a.amount;
+                               const amountB = b.type === 'Витрата' ? -b.amount : b.amount;
+                               comparison = amountA - amountB;
+                               break;
+                             case 'description':
+                               comparison = (a.description || '').localeCompare(b.description || '', 'uk');
+                               break;
+                             case 'category':
+                               comparison = (a.category || '').localeCompare(b.category || '', 'uk');
+                               break;
+                             case 'account':
+                               comparison = (a.account || '').localeCompare(b.account || '', 'uk');
+                               break;
+                             case 'counterparty':
+                               comparison = (a.counterparty || '').localeCompare(b.counterparty || '', 'uk');
+                               break;
+                             case 'project':
+                               comparison = (a.project || '').localeCompare(b.project || '', 'uk');
+                               break;
+                             default:
+                               comparison = 0;
+                           }
+                           return sortDirection === 'asc' ? comparison : -comparison;
+                         })
                          .map((tx, index) => (
                            <tr key={`${tx.date}-${index}-${tx.amount}`} className={`${tx.type === 'Витрата' ? 'bg-red-50 hover:bg-red-100' : 'bg-green-50 hover:bg-green-100'} transition-colors duration-150 ease-in-out`}>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{tx.date}</td>
