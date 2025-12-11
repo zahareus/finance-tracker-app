@@ -465,7 +465,7 @@ const ProjectsPage: React.FC = () => {
                                           </tr>
 
                                           {/* Бонус з суми */}
-                                          {projectData.currentProject?.bonusFromSum !== null && projectData.bonusFromSum > 0 && (
+                                          {projectData.currentProject && projectData.currentProject.bonusFromSum !== null && projectData.bonusFromSum > 0 && (
                                               <tr className="bg-orange-100">
                                                   <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-orange-800">
                                                       Розрахунково
@@ -480,7 +480,7 @@ const ProjectsPage: React.FC = () => {
                                           )}
 
                                           {/* Бонус з балансу */}
-                                          {projectData.currentProject?.bonusFromBalance !== null && projectData.bonusFromBalance > 0 && (
+                                          {projectData.currentProject && projectData.currentProject.bonusFromBalance !== null && projectData.bonusFromBalance > 0 && (
                                               <tr className="bg-orange-100">
                                                   <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-orange-800">
                                                       Розрахунково
