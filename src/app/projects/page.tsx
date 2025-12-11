@@ -1,9 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-    ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell
-} from 'recharts';
 
 // --- Типи даних ---
 interface Transaction {
@@ -56,6 +53,37 @@ const parseDate = (dateString: string | null): Date | null => {
         console.error("Error parsing date string:", dateString, e);
     }
     return null;
+};
+
+// Компонент для тултіпа з розрахунком
+const TooltipWithCalculation: React.FC<{
+    children: React.ReactNode;
+    calculation: string;
+}> = ({ children, calculation }) => {
+    const [isVisible, setIsVisible] = useState(false);
+
+    return (
+        <div className="relative inline-flex items-center gap-1">
+            {children}
+            <button
+                className="text-gray-400 hover:text-gray-600 cursor-help text-xs font-bold"
+                onMouseEnter={() => setIsVisible(true)}
+                onMouseLeave={() => setIsVisible(false)}
+                onClick={() => setIsVisible(!isVisible)}
+                aria-label="Показати розрахунок"
+            >
+                (+)
+            </button>
+            {isVisible && (
+                <div className="absolute z-50 bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-pre-line min-w-[200px] max-w-[300px]">
+                    <div className="text-left">{calculation}</div>
+                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                        <div className="border-4 border-transparent border-t-gray-900"></div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 };
 
 const ProjectsPage: React.FC = () => {
@@ -137,10 +165,12 @@ const ProjectsPage: React.FC = () => {
                 totalExpenses: 0,
                 taxes: 0,
                 bonusFromSum: 0,
+                bonusFromSumPercent: 0,
                 bonusFromBalance: 0,
+                bonusFromBalancePercent: 0,
+                baseForBalanceBonus: 0,
                 totalBonuses: 0,
                 balance: 0,
-                chartData: [],
                 currentProject: null as ProjectWithBonuses | null
             };
         }
@@ -167,9 +197,9 @@ const ProjectsPage: React.FC = () => {
         const bonusFromSumPercent = currentProject?.bonusFromSum ?? 0;
         const bonusFromSum = totalIncome * (bonusFromSumPercent / 100);
 
-        // Бонус з балансу (відсоток від (надходження - податки - бонус з суми))
+        // Бонус з балансу (відсоток від (надходження - ВИДАТКИ - податки - бонус з суми))
         const bonusFromBalancePercent = currentProject?.bonusFromBalance ?? 0;
-        const baseForBalanceBonus = totalIncome - taxes - bonusFromSum;
+        const baseForBalanceBonus = totalIncome - totalExpenses - taxes - bonusFromSum;
         const bonusFromBalance = baseForBalanceBonus > 0 ? baseForBalanceBonus * (bonusFromBalancePercent / 100) : 0;
 
         // Загальні бонуси
@@ -178,33 +208,40 @@ const ProjectsPage: React.FC = () => {
         // Баланс = Надходження - Видатки - Податки - Бонуси
         const balance = totalIncome - totalExpenses - taxes - totalBonuses;
 
-        // Дані для графіка (два стовпці)
-        const chartData = [
-            {
-                name: 'Надходження',
-                value: totalIncome,
-                fill: '#00C49F'
-            },
-            {
-                name: 'Видатки',
-                value: totalExpenses + taxes + totalBonuses,
-                fill: '#FF8042'
-            }
-        ];
-
         return {
             transactions: projectTransactions,
             totalIncome,
             totalExpenses,
             taxes,
             bonusFromSum,
+            bonusFromSumPercent,
             bonusFromBalance,
+            bonusFromBalancePercent,
+            baseForBalanceBonus,
             totalBonuses,
             balance,
-            chartData,
             currentProject
         };
     }, [allTransactions, selectedProject, projectsWithBonuses]);
+
+    // --- Тексти розрахунків для тултіпів ---
+    const calculations = useMemo(() => {
+        const { totalIncome, totalExpenses, taxes, bonusFromSum, bonusFromSumPercent, bonusFromBalance, bonusFromBalancePercent, baseForBalanceBonus, totalBonuses, balance } = projectData;
+
+        return {
+            taxes: `Податки = Надходження × 11%\n= ${formatNumber(totalIncome)} × 0.11\n= ${formatNumber(taxes)} ₴`,
+            bonusFromSum: `Бонус з суми = Надходження × ${bonusFromSumPercent}%\n= ${formatNumber(totalIncome)} × ${bonusFromSumPercent / 100}\n= ${formatNumber(bonusFromSum)} ₴`,
+            bonusFromBalance: `База = Надходження - Видатки - Податки - Бонус з суми\n= ${formatNumber(totalIncome)} - ${formatNumber(totalExpenses)} - ${formatNumber(taxes)} - ${formatNumber(bonusFromSum)}\n= ${formatNumber(baseForBalanceBonus)} ₴\n\nБонус з балансу = База × ${bonusFromBalancePercent}%\n= ${formatNumber(baseForBalanceBonus)} × ${bonusFromBalancePercent / 100}\n= ${formatNumber(bonusFromBalance)} ₴`,
+            totalBonuses: bonusFromSum > 0 && bonusFromBalance > 0
+                ? `Бонуси = Бонус з суми + Бонус з балансу\n= ${formatNumber(bonusFromSum)} + ${formatNumber(bonusFromBalance)}\n= ${formatNumber(totalBonuses)} ₴`
+                : bonusFromSum > 0
+                    ? `Бонуси = Бонус з суми\n= ${formatNumber(bonusFromSum)} ₴`
+                    : bonusFromBalance > 0
+                        ? `Бонуси = Бонус з балансу\n= ${formatNumber(bonusFromBalance)} ₴`
+                        : `Бонуси = 0 ₴`,
+            balance: `Баланс = Надходження - Видатки - Податки - Бонуси\n= ${formatNumber(totalIncome)} - ${formatNumber(totalExpenses)} - ${formatNumber(taxes)} - ${formatNumber(totalBonuses)}\n= ${formatNumber(balance)} ₴`
+        };
+    }, [projectData]);
 
     // --- РЕНДЕР КОМПОНЕНТА ---
     return (
@@ -246,7 +283,7 @@ const ProjectsPage: React.FC = () => {
               )}
           </div>
 
-          {/* --- Графік балансу проекту --- */}
+          {/* --- Блок балансу проекту (без графіка) --- */}
           {!isLoading && !error && selectedProject && (
               <div className="p-4 border rounded shadow bg-white mb-6">
                   <h2 className="text-lg font-semibold mb-4 text-center">
@@ -254,78 +291,66 @@ const ProjectsPage: React.FC = () => {
                   </h2>
 
                   {projectData.transactions.length > 0 ? (
-                      <>
-                          <ResponsiveContainer width="100%" height={300}>
-                              <BarChart
-                                  data={projectData.chartData}
-                                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                                  layout="vertical"
-                              >
-                                  <CartesianGrid strokeDasharray="3 3" />
-                                  <XAxis
-                                      type="number"
-                                      tickFormatter={(value) => formatNumber(value)}
-                                      fontSize={12}
-                                  />
-                                  <YAxis
-                                      type="category"
-                                      dataKey="name"
-                                      fontSize={12}
-                                      width={100}
-                                  />
-                                  <Tooltip
-                                      formatter={(value: number) => [`${formatNumber(value)} ₴`, '']}
-                                      labelStyle={{ fontWeight: 'bold' }}
-                                  />
-                                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                                      {projectData.chartData.map((entry, index) => (
-                                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                                      ))}
-                                  </Bar>
-                              </BarChart>
-                          </ResponsiveContainer>
-
-                          {/* --- Деталі балансу --- */}
-                          <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                              <div className="text-center p-3 bg-green-50 rounded-lg">
-                                  <p className="text-xs sm:text-sm text-gray-600 mb-1">Надходження</p>
-                                  <p className="text-lg sm:text-xl font-bold text-[#00C49F]">
-                                      {formatNumber(projectData.totalIncome)} ₴
-                                  </p>
-                              </div>
-                              <div className="text-center p-3 bg-red-50 rounded-lg">
-                                  <p className="text-xs sm:text-sm text-gray-600 mb-1">Видатки</p>
-                                  <p className="text-lg sm:text-xl font-bold text-[#FF8042]">
-                                      {formatNumber(projectData.totalExpenses)} ₴
-                                  </p>
-                              </div>
-                              <div className="text-center p-3 bg-yellow-50 rounded-lg">
-                                  <p className="text-xs sm:text-sm text-gray-600 mb-1">Податки (11%)</p>
-                                  <p className="text-lg sm:text-xl font-bold text-yellow-600">
-                                      {formatNumber(projectData.taxes)} ₴
-                                  </p>
-                              </div>
-                              <div className="text-center p-3 bg-orange-50 rounded-lg">
-                                  <p className="text-xs sm:text-sm text-gray-600 mb-1">Бонуси</p>
-                                  <p className="text-lg sm:text-xl font-bold text-orange-500">
-                                      {formatNumber(projectData.totalBonuses)} ₴
-                                  </p>
-                                  {(projectData.bonusFromSum > 0 || projectData.bonusFromBalance > 0) && (
-                                      <p className="text-xs text-gray-400 mt-1">
-                                          {projectData.bonusFromSum > 0 && `з суми: ${formatNumber(projectData.bonusFromSum)}`}
-                                          {projectData.bonusFromSum > 0 && projectData.bonusFromBalance > 0 && ' | '}
-                                          {projectData.bonusFromBalance > 0 && `з балансу: ${formatNumber(projectData.bonusFromBalance)}`}
-                                      </p>
-                                  )}
-                              </div>
-                              <div className="text-center p-3 bg-purple-50 rounded-lg col-span-2 sm:col-span-1">
-                                  <p className="text-xs sm:text-sm text-gray-600 mb-1">Баланс</p>
-                                  <p className={`text-lg sm:text-xl font-bold ${projectData.balance >= 0 ? 'text-[#8884D8]' : 'text-red-600'}`}>
-                                      {formatNumber(projectData.balance)} ₴
-                                  </p>
-                              </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+                          {/* Надходження */}
+                          <div className="text-center p-3 bg-green-50 rounded-lg">
+                              <p className="text-xs sm:text-sm text-gray-600 mb-1">Надходження</p>
+                              <p className="text-lg sm:text-xl font-bold text-[#00C49F]">
+                                  {formatNumber(projectData.totalIncome)} ₴
+                              </p>
                           </div>
-                      </>
+
+                          {/* Видатки */}
+                          <div className="text-center p-3 bg-red-50 rounded-lg">
+                              <p className="text-xs sm:text-sm text-gray-600 mb-1">Видатки</p>
+                              <p className="text-lg sm:text-xl font-bold text-[#FF8042]">
+                                  {formatNumber(projectData.totalExpenses)} ₴
+                              </p>
+                          </div>
+
+                          {/* Податки */}
+                          <div className="text-center p-3 bg-yellow-50 rounded-lg">
+                              <p className="text-xs sm:text-sm text-gray-600 mb-1">
+                                  <TooltipWithCalculation calculation={calculations.taxes}>
+                                      <span>Податки (11%)</span>
+                                  </TooltipWithCalculation>
+                              </p>
+                              <p className="text-lg sm:text-xl font-bold text-yellow-600">
+                                  {formatNumber(projectData.taxes)} ₴
+                              </p>
+                          </div>
+
+                          {/* Бонуси */}
+                          <div className="text-center p-3 bg-orange-50 rounded-lg">
+                              <p className="text-xs sm:text-sm text-gray-600 mb-1">
+                                  <TooltipWithCalculation calculation={calculations.totalBonuses}>
+                                      <span>Бонуси</span>
+                                  </TooltipWithCalculation>
+                              </p>
+                              <p className="text-lg sm:text-xl font-bold text-orange-500">
+                                  {formatNumber(projectData.totalBonuses)} ₴
+                              </p>
+                              {(projectData.bonusFromSum > 0 || projectData.bonusFromBalance > 0) && (
+                                  <p className="text-xs text-gray-400 mt-1">
+                                      {projectData.bonusFromSum > 0 && `з суми: ${formatNumber(projectData.bonusFromSum)}`}
+                                      {projectData.bonusFromSum > 0 && projectData.bonusFromBalance > 0 && ' | '}
+                                      {projectData.bonusFromBalance > 0 && `з балансу: ${formatNumber(projectData.bonusFromBalance)}`}
+                                  </p>
+                              )}
+                          </div>
+
+                          {/* Баланс */}
+                          <div className="text-center p-3 bg-purple-50 rounded-lg col-span-2 sm:col-span-1">
+                              <p className="text-xs sm:text-sm text-gray-600 mb-1">
+                                  <TooltipWithCalculation calculation={calculations.balance}>
+                                      <span>Баланс</span>
+                                  </TooltipWithCalculation>
+                              </p>
+                              <p className={`text-lg sm:text-xl font-bold ${projectData.balance >= 0 ? 'text-[#8884D8]' : 'text-red-600'}`}>
+                                  {formatNumber(projectData.balance)} ₴
+                              </p>
+                          </div>
+                      </div>
                   ) : (
                       <p className="text-center text-gray-500 py-10">
                           Немає транзакцій для цього проекту
@@ -460,7 +485,9 @@ const ProjectsPage: React.FC = () => {
                                                   - {formatNumber(projectData.taxes)} ₴
                                               </td>
                                               <td colSpan={4} className="px-4 py-2 text-sm text-yellow-800">
-                                                  Податки (11% від надходжень)
+                                                  <TooltipWithCalculation calculation={calculations.taxes}>
+                                                      <span>Податки (11% від надходжень)</span>
+                                                  </TooltipWithCalculation>
                                               </td>
                                           </tr>
 
@@ -474,7 +501,9 @@ const ProjectsPage: React.FC = () => {
                                                       - {formatNumber(projectData.bonusFromSum)} ₴
                                                   </td>
                                                   <td colSpan={4} className="px-4 py-2 text-sm text-orange-800">
-                                                      Бонус з суми ({projectData.currentProject.bonusFromSum}% від надходжень)
+                                                      <TooltipWithCalculation calculation={calculations.bonusFromSum}>
+                                                          <span>Бонус з суми ({projectData.currentProject.bonusFromSum}% від надходжень)</span>
+                                                      </TooltipWithCalculation>
                                                   </td>
                                               </tr>
                                           )}
@@ -489,10 +518,27 @@ const ProjectsPage: React.FC = () => {
                                                       - {formatNumber(projectData.bonusFromBalance)} ₴
                                                   </td>
                                                   <td colSpan={4} className="px-4 py-2 text-sm text-orange-800">
-                                                      Бонус з балансу ({projectData.currentProject.bonusFromBalance}% від надходжень за мінусом податків та бонусу з суми)
+                                                      <TooltipWithCalculation calculation={calculations.bonusFromBalance}>
+                                                          <span>Бонус з балансу ({projectData.currentProject.bonusFromBalance}% від надходжень за мінусом видатків, податків та бонусу з суми)</span>
+                                                      </TooltipWithCalculation>
                                                   </td>
                                               </tr>
                                           )}
+
+                                          {/* Баланс */}
+                                          <tr className="bg-purple-100 border-t-2 border-purple-300">
+                                              <td className="px-4 py-2 whitespace-nowrap text-sm font-bold text-purple-800">
+                                                  Баланс
+                                              </td>
+                                              <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-bold ${projectData.balance >= 0 ? 'text-purple-800' : 'text-red-600'}`}>
+                                                  {formatNumber(projectData.balance)} ₴
+                                              </td>
+                                              <td colSpan={4} className="px-4 py-2 text-sm text-purple-800">
+                                                  <TooltipWithCalculation calculation={calculations.balance}>
+                                                      <span>Надходження - Видатки - Податки - Бонуси</span>
+                                                  </TooltipWithCalculation>
+                                              </td>
+                                          </tr>
                                       </>
                                   )}
                               </>
