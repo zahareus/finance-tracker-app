@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Inter } from 'next/font/google';
 import Link from 'next/link';
 import Image from 'next/image';
+import { usePathname } from 'next/navigation';
 import './globals.css';
 
 // --- Типи даних ---
@@ -33,6 +34,8 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+
   // --- Стан для даних хедера ---
   const [headerAllTransactions, setHeaderAllTransactions] = useState<Transaction[]>([]);
   const [headerAccounts, setHeaderAccounts] = useState<string[]>([]);
@@ -85,11 +88,33 @@ export default function RootLayout({
           {/* Змінив h-16 на h-auto та додав min-h-16 для гнучкості */}
           <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-16 flex items-center justify-between gap-4 flex-wrap md:flex-nowrap"> {/* Додав flex-wrap для мобільних */}
 
-             {/* Логотип (відцентрований на мобільних, зліва на десктопі) */}
-             <div className="w-full md:w-auto flex justify-center md:justify-start flex-shrink-0 py-2"> {/* Додав центрування */}
-                <Link href="/transactions" className="flex items-center">
-                    <Image src="/logo.png" alt="Логотип Місцеві гроші" width={300} height={75} priority className="h-10 md:h-12 w-auto" /> {/* Зменшив висоту */}
+             {/* Логотип та навігація */}
+             <div className="w-full md:w-auto flex justify-center md:justify-start items-center gap-4 flex-shrink-0 py-2">
+                <Link href="/" className="flex items-center">
+                    <Image src="/logo.png" alt="Логотип Місцеві гроші" width={300} height={75} priority className="h-10 md:h-12 w-auto" />
                 </Link>
+                <nav className="flex items-center gap-1 sm:gap-2">
+                  <Link
+                    href="/"
+                    className={`px-2 sm:px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                      pathname === '/' || pathname === '/transactions'
+                        ? 'bg-[#8884D8] text-white'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    }`}
+                  >
+                    Баланс
+                  </Link>
+                  <Link
+                    href="/projects"
+                    className={`px-2 sm:px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                      pathname === '/projects'
+                        ? 'bg-[#8884D8] text-white'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    }`}
+                  >
+                    Проекти
+                  </Link>
+                </nav>
              </div>
 
              {/* Показники (по центру) */}
