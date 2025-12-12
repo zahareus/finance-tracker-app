@@ -98,6 +98,36 @@ const formatDateForInput = (date: Date): string => {
 };
 // --- Кінець хелперів ---
 
+// Компонент для тултіпа з розрахунком
+const TooltipWithCalculation: React.FC<{
+    children: React.ReactNode;
+    calculation: string;
+}> = ({ children, calculation }) => {
+    const [isVisible, setIsVisible] = useState(false);
+
+    return (
+        <div className="relative inline-flex items-center gap-1">
+            {children}
+            <button
+                className="text-gray-400 hover:text-gray-600 cursor-help text-xs font-bold"
+                onMouseEnter={() => setIsVisible(true)}
+                onMouseLeave={() => setIsVisible(false)}
+                onClick={() => setIsVisible(!isVisible)}
+                aria-label="Показати розрахунок"
+            >
+                (+)
+            </button>
+            {isVisible && (
+                <div className="absolute z-50 bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-pre-line min-w-[200px] max-w-[300px]">
+                    <div className="text-left">{calculation}</div>
+                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                        <div className="border-4 border-transparent border-t-gray-900"></div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
 const TransactionsPage: React.FC = () => {
     // --- Стан ---
@@ -138,6 +168,10 @@ const TransactionsPage: React.FC = () => {
     // Стан для сортування таблиці
     const [sortColumn, setSortColumn] = useState<string>('date');
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+    // Стан для згортання блоків графіків
+    const [isChartDynamicsOpen, setIsChartDynamicsOpen] = useState<boolean>(true);
+    const [isChartDistributionOpen, setIsChartDistributionOpen] = useState<boolean>(true);
 
     // --- Завантаження даних ---
     // Повний useEffect
@@ -354,6 +388,40 @@ const TransactionsPage: React.FC = () => {
         return { income, expense, balance };
     }, [processedData.filteredTransactions]);
 
+    // --- Розрахунок текстів для тултіпів підсумкових рядків ---
+    const summaryCalculations = useMemo(() => {
+        const { income, expense } = totalSums;
+
+        // Отримуємо список транзакцій для детального розрахунку
+        const incomeTransactions = processedData.filteredTransactions.filter(tx => tx.type === 'Надходження');
+        const expenseTransactions = processedData.filteredTransactions.filter(tx => tx.type === 'Витрата');
+
+        // Формуємо текст розрахунку для надходжень (до 10 транзакцій)
+        let incomeCalc = 'Сума надходжень:\n';
+        if (incomeTransactions.length <= 10) {
+            incomeCalc += incomeTransactions.map(tx => `+ ${formatNumber(tx.amount)} ₴`).join('\n');
+        } else {
+            incomeCalc += incomeTransactions.slice(0, 8).map(tx => `+ ${formatNumber(tx.amount)} ₴`).join('\n');
+            incomeCalc += `\n... ще ${incomeTransactions.length - 8} транзакцій ...`;
+        }
+        incomeCalc += `\n= ${formatNumber(income)} ₴`;
+
+        // Формуємо текст розрахунку для видатків (до 10 транзакцій)
+        let expenseCalc = 'Сума видатків:\n';
+        if (expenseTransactions.length <= 10) {
+            expenseCalc += expenseTransactions.map(tx => `+ ${formatNumber(tx.amount)} ₴`).join('\n');
+        } else {
+            expenseCalc += expenseTransactions.slice(0, 8).map(tx => `+ ${formatNumber(tx.amount)} ₴`).join('\n');
+            expenseCalc += `\n... ще ${expenseTransactions.length - 8} транзакцій ...`;
+        }
+        expenseCalc += `\n= ${formatNumber(expense)} ₴`;
+
+        return {
+            income: incomeCalc,
+            expense: expenseCalc
+        };
+    }, [totalSums, processedData.filteredTransactions]);
+
     // --- Розрахунок даних для pie charts розподілу по категоріям ---
     const categoryDistribution = useMemo(() => {
         const incomeByCategory: { [key: string]: number } = {};
@@ -547,9 +615,15 @@ const TransactionsPage: React.FC = () => {
           {isLoading && <p className="mt-6 text-center">Завантаження звіту...</p>}
           {error && <p className="mt-6 text-red-600 text-center">Помилка завантаження звіту: {error}</p>}
           {!isLoading && !error && (
-               <div className="p-4 border rounded shadow bg-white mb-6 min-h-[400px]">
-                   <h2 className="text-lg font-semibold mb-4 text-center">Динаміка за Період</h2>
-                   {processedData.barChartData.length > 0 ? (
+               <div className="p-4 border rounded shadow bg-white mb-6">
+                   <h2
+                       className="text-lg font-semibold mb-4 text-center cursor-pointer hover:text-[#8884D8] transition-colors duration-200 select-none flex items-center justify-center gap-2"
+                       onClick={() => setIsChartDynamicsOpen(!isChartDynamicsOpen)}
+                   >
+                       <span>Динаміка за Період</span>
+                       <span className="text-gray-400 text-sm">{isChartDynamicsOpen ? '▲' : '▼'}</span>
+                   </h2>
+                   {isChartDynamicsOpen && processedData.barChartData.length > 0 ? (
                       <ResponsiveContainer width="100%" height={350}>
                          <BarChart data={processedData.barChartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
                            <CartesianGrid strokeDasharray="3 3" />
@@ -563,10 +637,10 @@ const TransactionsPage: React.FC = () => {
                            {processedData.shouldShowBalance && <Bar dataKey="balance" fill="#8884D8" name="Баланс (кінець міс.)" radius={[4, 4, 0, 0]} />}
                          </BarChart>
                       </ResponsiveContainer>
-                   ) : ( <p className="text-center text-gray-500 pt-10">Немає даних для відображення звіту за обраними фільтрами.</p> )}
+                   ) : isChartDynamicsOpen ? ( <p className="text-center text-gray-500 pt-10">Немає даних для відображення звіту за обраними фільтрами.</p> ) : null}
 
                    {/* --- Блок із загальними сумами --- */}
-                   {processedData.barChartData.length > 0 && (
+                   {isChartDynamicsOpen && processedData.barChartData.length > 0 && (
                        <div className="mt-6 flex justify-center gap-8 flex-wrap">
                            <div className="text-center">
                                <p className="text-sm text-gray-600 mb-1">Надходження</p>
@@ -593,9 +667,16 @@ const TransactionsPage: React.FC = () => {
           {/* --- Кінець Графіка --- */}
 
           {/* --- Графіки розподілу по категоріям --- */}
-          {!isLoading && !error && (categoryDistribution.incomeData.length > 0 || categoryDistribution.expenseData.length > 0) && (
+          {!isLoading && !error && (
               <div className="p-4 border rounded shadow bg-white mb-6">
-                  <h2 className="text-lg font-semibold mb-4 text-center">Розподіл по категоріям</h2>
+                  <h2
+                      className="text-lg font-semibold mb-4 text-center cursor-pointer hover:text-[#8884D8] transition-colors duration-200 select-none flex items-center justify-center gap-2"
+                      onClick={() => setIsChartDistributionOpen(!isChartDistributionOpen)}
+                  >
+                      <span>Розподіл по категоріям</span>
+                      <span className="text-gray-400 text-sm">{isChartDistributionOpen ? '▲' : '▼'}</span>
+                  </h2>
+                  {isChartDistributionOpen && (categoryDistribution.incomeData.length > 0 || categoryDistribution.expenseData.length > 0) ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Pie Chart для надходжень */}
                       <div className="flex flex-col items-center">
@@ -685,6 +766,9 @@ const TransactionsPage: React.FC = () => {
                           )}
                       </div>
                   </div>
+                  ) : isChartDistributionOpen ? (
+                      <p className="text-center text-gray-500 py-6">Немає даних для відображення розподілу за обраними фільтрами.</p>
+                  ) : null}
               </div>
           )}
           {/* --- Кінець графіків розподілу --- */}
@@ -804,6 +888,39 @@ const TransactionsPage: React.FC = () => {
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.project || '-'}</td>
                            </tr>
                          ))
+                     )}
+                     {/* Підсумкові рядки */}
+                     {processedData.filteredTransactions.length > 0 && (
+                         <>
+                             {/* Сума надходжень */}
+                             <tr className="bg-green-100 border-t-2 border-green-300">
+                                 <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-green-800">
+                                     Разом
+                                 </td>
+                                 <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-green-800">
+                                     + {formatNumber(totalSums.income)} ₴
+                                 </td>
+                                 <td colSpan={5} className="px-4 py-2 text-sm text-green-800">
+                                     <TooltipWithCalculation calculation={summaryCalculations.income}>
+                                         <span>Сума надходжень</span>
+                                     </TooltipWithCalculation>
+                                 </td>
+                             </tr>
+                             {/* Сума видатків */}
+                             <tr className="bg-red-100">
+                                 <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-red-800">
+                                     Разом
+                                 </td>
+                                 <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-red-800">
+                                     - {formatNumber(totalSums.expense)} ₴
+                                 </td>
+                                 <td colSpan={5} className="px-4 py-2 text-sm text-red-800">
+                                     <TooltipWithCalculation calculation={summaryCalculations.expense}>
+                                         <span>Сума видатків</span>
+                                     </TooltipWithCalculation>
+                                 </td>
+                             </tr>
+                         </>
                      )}
                    </tbody>
                  </table>
