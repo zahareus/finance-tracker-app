@@ -418,7 +418,8 @@ const TransactionsPage: React.FC = () => {
 
         return {
             income: incomeCalc,
-            expense: expenseCalc
+            expense: expenseCalc,
+            balance: `Баланс = Надходження - Видатки\n= ${formatNumber(totalSums.income)} - ${formatNumber(totalSums.expense)}\n= ${formatNumber(totalSums.balance)} ₴`
         };
     }, [totalSums, processedData.filteredTransactions]);
 
@@ -917,6 +918,20 @@ const TransactionsPage: React.FC = () => {
                                  <td colSpan={5} className="px-4 py-2 text-sm text-red-800">
                                      <TooltipWithCalculation calculation={summaryCalculations.expense}>
                                          <span>Сума видатків</span>
+                                     </TooltipWithCalculation>
+                                 </td>
+                             </tr>
+                             {/* Баланс */}
+                             <tr className="bg-purple-100 border-t-2 border-purple-300">
+                                 <td className="px-4 py-2 whitespace-nowrap text-sm font-bold text-purple-800">
+                                     Баланс
+                                 </td>
+                                 <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-bold ${totalSums.balance >= 0 ? 'text-purple-800' : 'text-red-600'}`}>
+                                     {formatNumber(totalSums.balance)} ₴
+                                 </td>
+                                 <td colSpan={5} className="px-4 py-2 text-sm text-purple-800">
+                                     <TooltipWithCalculation calculation={summaryCalculations.balance}>
+                                         <span>Надходження - Видатки</span>
                                      </TooltipWithCalculation>
                                  </td>
                              </tr>
