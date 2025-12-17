@@ -243,8 +243,8 @@ const TransactionsPage: React.FC = () => {
         const currentYear = today.getFullYear();
         const currentMonth = today.getMonth(); // 0-11
 
-        // Починаємо з 2024 року (або першого року з транзакціями)
-        const startYear = 2024;
+        // Починаємо з 2025 року (перші транзакції в системі)
+        const startYear = 2025;
         const years: {year: number, months: number[]}[] = [];
 
         for (let year = startYear; year <= currentYear; year++) {
@@ -576,7 +576,7 @@ const TransactionsPage: React.FC = () => {
                                       setStartDate(e.target.value);
                                       setSelectedMonthRange({ start: null, end: null });
                                   }}
-                                  className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-2 focus:ring-[#8884D8] focus:border-[#8884D8]"
+                                  className="w-full p-1.5 sm:p-2 border border-gray-300 rounded text-xs sm:text-sm shadow-sm focus:ring-2 focus:ring-[#8884D8] focus:border-[#8884D8]"
                               />
                           </div>
                           <div className='flex-1'>
@@ -589,7 +589,7 @@ const TransactionsPage: React.FC = () => {
                                       setEndDate(e.target.value);
                                       setSelectedMonthRange({ start: null, end: null });
                                   }}
-                                  className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-2 focus:ring-[#8884D8] focus:border-[#8884D8]"
+                                  className="w-full p-1.5 sm:p-2 border border-gray-300 rounded text-xs sm:text-sm shadow-sm focus:ring-2 focus:ring-[#8884D8] focus:border-[#8884D8]"
                               />
                           </div>
                       </div>
@@ -788,7 +788,7 @@ const TransactionsPage: React.FC = () => {
           {!isLoading && !error && (
                <div className="p-4 border rounded shadow bg-white mb-6">
                    <h2
-                       className="text-lg font-semibold mb-4 text-center cursor-pointer hover:text-[#8884D8] transition-colors duration-200 select-none flex items-center justify-center gap-2"
+                       className="text-lg font-semibold mb-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 select-none flex items-center justify-between"
                        onClick={() => setIsChartDynamicsOpen(!isChartDynamicsOpen)}
                    >
                        <span>Динаміка за Період</span>
@@ -841,7 +841,7 @@ const TransactionsPage: React.FC = () => {
           {!isLoading && !error && (
               <div className="p-4 border rounded shadow bg-white mb-6">
                   <h2
-                      className="text-lg font-semibold mb-4 text-center cursor-pointer hover:text-[#8884D8] transition-colors duration-200 select-none flex items-center justify-center gap-2"
+                      className="text-lg font-semibold mb-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 select-none flex items-center justify-between"
                       onClick={() => setIsChartDistributionOpen(!isChartDistributionOpen)}
                   >
                       <span>Розподіл по категоріям</span>
