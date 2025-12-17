@@ -89,14 +89,14 @@ export default function RootLayout({
           <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-16 flex items-center justify-between gap-4 flex-wrap md:flex-nowrap"> {/* Додав flex-wrap для мобільних */}
 
              {/* Логотип та навігація */}
-             <div className="w-full md:w-auto flex justify-center md:justify-start items-center gap-4 flex-shrink-0 py-2">
-                <Link href="/" className="flex items-center">
-                    <Image src="/logo.png" alt="Логотип Місцеві гроші" width={300} height={75} priority className="h-10 md:h-12 w-auto" />
+             <div className="w-full md:w-auto flex justify-center md:justify-start items-center gap-2 sm:gap-4 flex-shrink-0 py-2">
+                <Link href="/" className="flex items-center flex-shrink-0">
+                    <Image src="/logo.png" alt="Логотип Місцеві гроші" width={300} height={75} priority className="h-8 sm:h-10 md:h-12 w-auto" />
                 </Link>
                 <nav className="flex items-center gap-1 sm:gap-2">
                   <Link
                     href="/"
-                    className={`px-2 sm:px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                    className={`px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                       pathname === '/' || pathname === '/transactions'
                         ? 'bg-[#8884D8] text-white'
                         : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
@@ -105,8 +105,18 @@ export default function RootLayout({
                     Баланс
                   </Link>
                   <Link
+                    href="/earn"
+                    className={`px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                      pathname === '/earn'
+                        ? 'bg-[#8884D8] text-white'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    }`}
+                  >
+                    Зароблено
+                  </Link>
+                  <Link
                     href="/projects"
-                    className={`px-2 sm:px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                    className={`px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                       pathname === '/projects'
                         ? 'bg-[#8884D8] text-white'
                         : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
