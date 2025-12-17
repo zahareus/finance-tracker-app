@@ -173,6 +173,13 @@ const TransactionsPage: React.FC = () => {
     const [isChartDynamicsOpen, setIsChartDynamicsOpen] = useState<boolean>(true);
     const [isChartDistributionOpen, setIsChartDistributionOpen] = useState<boolean>(true);
 
+    // Стан для згортання блоків дат та фільтрів
+    const [isDateIntervalOpen, setIsDateIntervalOpen] = useState<boolean>(true);
+    const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(true);
+
+    // Стан для вибору місяців на таймлайні (зберігаємо два вибраних місяці для діапазону)
+    const [selectedMonthRange, setSelectedMonthRange] = useState<{start: string | null, end: string | null}>({start: null, end: null});
+
     // --- Завантаження даних ---
     // Повний useEffect
     useEffect(() => {
@@ -227,40 +234,110 @@ const TransactionsPage: React.FC = () => {
         }
     }, [sortColumn]);
 
-    // **ПОВНА ТА ВИПРАВЛЕНА функція setDateRangePreset**
-    const setDateRangePreset = useCallback((preset: 'last_month' | 'last_3_months' | 'last_12_months') => {
-        const today = new Date();
-        let year = today.getFullYear();
-        let month = today.getMonth(); // 0-11
-        // **ВИПРАВЛЕННЯ: Ініціалізуємо startDate та endDate**
-        let startDate: Date = new Date();
-        let endDate: Date = new Date();
+    // Скорочені назви місяців українською
+    const MONTH_NAMES_SHORT = ['СІЧ', 'ЛЮТ', 'БЕР', 'КВІ', 'ТРА', 'ЧЕР', 'ЛИП', 'СЕР', 'ВЕР', 'ЖОВ', 'ЛИС', 'ГРУ'];
 
-        switch(preset) {
-            case 'last_month':
-                // Кінець попереднього місяця
-                endDate = new Date(year, month, 0);
-                // Початок попереднього місяця
-                startDate = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
-                break;
-            case 'last_3_months':
-                 // Кінець попереднього місяця
-                endDate = new Date(year, month, 0);
-                 // Початок місяця 3 місяці тому відносно кінцевої дати
-                startDate = new Date(endDate.getFullYear(), endDate.getMonth() - 2, 1);
-                break;
-            case 'last_12_months':
-                 // Кінець попереднього місяця
-                 endDate = new Date(year, month, 0);
-                 // Початок місяця 12 місяців тому (тобто за 11 місяців до кінцевого)
-                 startDate = new Date(endDate.getFullYear(), endDate.getMonth() - 11, 1);
-                break;
-            // Немає потреби в default, оскільки тип preset обмежений
+    // Генерація доступних років та місяців на основі поточної дати
+    const availableYearsAndMonths = useMemo(() => {
+        const today = new Date();
+        const currentYear = today.getFullYear();
+        const currentMonth = today.getMonth(); // 0-11
+
+        // Починаємо з 2024 року (або першого року з транзакціями)
+        const startYear = 2024;
+        const years: {year: number, months: number[]}[] = [];
+
+        for (let year = startYear; year <= currentYear; year++) {
+            const months: number[] = [];
+            const maxMonth = year === currentYear ? currentMonth : 11;
+
+            for (let month = 0; month <= maxMonth; month++) {
+                months.push(month);
+            }
+
+            if (months.length > 0) {
+                years.push({ year, months });
+            }
         }
-        // Тепер startDate та endDate гарантовано мають значення Date перед форматуванням
-        setStartDate(formatDateForInput(startDate));
-        setEndDate(formatDateForInput(endDate));
-    }, []); // Залежностей немає
+
+        return years;
+    }, []);
+
+    // Перевірка чи місяць активний (входить в поточний інтервал дат)
+    const isMonthActive = useCallback((year: number, month: number) => {
+        const monthStart = new Date(Date.UTC(year, month, 1));
+        const monthEnd = new Date(Date.UTC(year, month + 1, 0)); // Останній день місяця
+
+        const start = parseDate(startDate);
+        const end = parseDate(endDate);
+
+        if (!start || !end) return false;
+
+        // Місяць активний якщо він перетинається з обраним інтервалом
+        return monthStart <= end && monthEnd >= start;
+    }, [startDate, endDate]);
+
+    // Перевірка чи весь рік активний
+    const isYearFullyActive = useCallback((year: number) => {
+        const yearData = availableYearsAndMonths.find(y => y.year === year);
+        if (!yearData) return false;
+
+        return yearData.months.every(month => isMonthActive(year, month));
+    }, [availableYearsAndMonths, isMonthActive]);
+
+    // Обробник кліку на рік - вибирає весь рік
+    const handleYearClick = useCallback((year: number) => {
+        const yearData = availableYearsAndMonths.find(y => y.year === year);
+        if (!yearData) return;
+
+        const today = new Date();
+        const isCurrentYear = year === today.getFullYear();
+
+        const yearStart = new Date(Date.UTC(year, 0, 1));
+        const yearEnd = isCurrentYear
+            ? new Date(Date.UTC(year, today.getMonth() + 1, 0)) // Кінець поточного місяця
+            : new Date(Date.UTC(year, 11, 31));
+
+        setStartDate(formatDateForInput(yearStart));
+        setEndDate(formatDateForInput(yearEnd));
+        setSelectedMonthRange({ start: null, end: null });
+    }, [availableYearsAndMonths]);
+
+    // Обробник кліку на місяць
+    const handleMonthClick = useCallback((year: number, month: number) => {
+        const monthKey = `${year}-${month}`;
+
+        // Якщо немає вибраного початку - вибираємо цей місяць як початок і кінець
+        if (!selectedMonthRange.start) {
+            const monthStart = new Date(Date.UTC(year, month, 1));
+            const monthEnd = new Date(Date.UTC(year, month + 1, 0));
+
+            setStartDate(formatDateForInput(monthStart));
+            setEndDate(formatDateForInput(monthEnd));
+            setSelectedMonthRange({ start: monthKey, end: monthKey });
+        } else {
+            // Якщо є вибраний початок - визначаємо діапазон
+            const [startYear, startMonth] = selectedMonthRange.start.split('-').map(Number);
+            const clickedDate = new Date(Date.UTC(year, month, 1));
+            const startDate = new Date(Date.UTC(startYear, startMonth, 1));
+
+            let rangeStart: Date, rangeEnd: Date;
+
+            if (clickedDate < startDate) {
+                // Клікнутий місяць раніше за початок - він стає новим початком
+                rangeStart = clickedDate;
+                rangeEnd = new Date(Date.UTC(startYear, startMonth + 1, 0));
+            } else {
+                // Клікнутий місяць пізніше - він стає кінцем
+                rangeStart = startDate;
+                rangeEnd = new Date(Date.UTC(year, month + 1, 0));
+            }
+
+            setStartDate(formatDateForInput(rangeStart));
+            setEndDate(formatDateForInput(rangeEnd));
+            setSelectedMonthRange({ start: null, end: null }); // Скидаємо для наступного вибору
+        }
+    }, [selectedMonthRange]);
 
 
     // === ОБРОБКА ДАНИХ ДЛЯ ГРАФІКА ТА ТАБЛИЦІ ===
@@ -476,45 +553,136 @@ const TransactionsPage: React.FC = () => {
     // --- РЕНДЕР КОМПОНЕНТА ---
     return (
         <div>
-          {/* --- ФІЛЬТРИ --- */}
-          {/* Повний JSX Фільтрів */}
-          <div className="mb-6 p-4 border rounded bg-gray-50 space-y-4">
-               {/* --- Перший Рядок Фільтрів --- */}
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3 items-end">
-                   {/* Колонка 1: Дати */}
-                   <div className="flex flex-col sm:flex-row gap-2 md:col-span-1">
-                       <div className='flex-1 min-w-[130px]'> <label htmlFor="trans-startDate" className="block text-xs font-medium text-gray-600 mb-1">Період Від</label> <input id="trans-startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full p-1.5 border border-gray-300 rounded text-sm shadow-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"/> </div>
-                       <div className='flex-1 min-w-[130px]'> <label htmlFor="trans-endDate" className="block text-xs font-medium text-gray-600 mb-1">Період До</label> <input id="trans-endDate" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full p-1.5 border border-gray-300 rounded text-sm shadow-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"/> </div>
-                   </div>
-                   {/* Колонка 2: Швидкі Періоди */}
-                   <div className="md:col-span-1">
-                       <label className="block text-xs font-medium text-gray-600 mb-1 invisible">Швидкі Періоди</label>
-                       <div className="flex space-x-2">
-                           {/* **ОНОВЛЕНО ВИКЛИКИ setDateRangePreset** */}
-                           <button onClick={() => setDateRangePreset('last_month')} className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Місяць</button>
-                           <button onClick={() => setDateRangePreset('last_3_months')} className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Квартал</button>
-                           <button onClick={() => setDateRangePreset('last_12_months')} className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 shadow-sm">Рік</button>
-                       </div>
-                   </div>
-                   {/* Колонка 3: Тип */}
-                   <div className="md:col-span-1">
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Тип</label>
-                      <div className="flex rounded border border-gray-300 overflow-hidden shadow-sm">
-                        {(['Всі', 'Надходження', 'Витрата'] as const).map((type, index) => {
-                          const getTypeColors = () => {
-                            if (selectedType !== type) return 'bg-white text-gray-700 hover:bg-gray-100';
-                            switch(type) {
-                              case 'Всі': return 'bg-[#8884D8] text-white';
-                              case 'Надходження': return 'bg-[#00C49F] text-white';
-                              case 'Витрата': return 'bg-[#FF8042] text-white';
-                            }
-                          };
-                          return <button key={type} onClick={() => setSelectedType(type)} className={`flex-1 px-2 py-1.5 text-sm text-center transition-colors duration-150 ease-in-out ${getTypeColors()} ${index > 0 ? 'border-l border-gray-300' : ''}`} > {type} </button>;
-                        })}
+          {/* --- БЛОК ІНТЕРВАЛ ДАТ --- */}
+          <div className="mb-4 border rounded bg-white shadow">
+              <h2
+                  className="text-lg font-semibold p-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 select-none flex items-center justify-between"
+                  onClick={() => setIsDateIntervalOpen(!isDateIntervalOpen)}
+              >
+                  <span>Інтервал дат</span>
+                  <span className="text-gray-400 text-sm">{isDateIntervalOpen ? '▲' : '▼'}</span>
+              </h2>
+              {isDateIntervalOpen && (
+                  <div className="p-4 pt-0 space-y-4">
+                      {/* Верхній рядок: Початок та Кінець */}
+                      <div className="flex flex-col sm:flex-row gap-4">
+                          <div className='flex-1'>
+                              <label htmlFor="trans-startDate" className="block text-xs font-medium text-gray-600 mb-1">Початок</label>
+                              <input
+                                  id="trans-startDate"
+                                  type="date"
+                                  value={startDate}
+                                  onChange={(e) => {
+                                      setStartDate(e.target.value);
+                                      setSelectedMonthRange({ start: null, end: null });
+                                  }}
+                                  className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-2 focus:ring-[#8884D8] focus:border-[#8884D8]"
+                              />
+                          </div>
+                          <div className='flex-1'>
+                              <label htmlFor="trans-endDate" className="block text-xs font-medium text-gray-600 mb-1">Кінець</label>
+                              <input
+                                  id="trans-endDate"
+                                  type="date"
+                                  value={endDate}
+                                  onChange={(e) => {
+                                      setEndDate(e.target.value);
+                                      setSelectedMonthRange({ start: null, end: null });
+                                  }}
+                                  className="w-full p-2 border border-gray-300 rounded text-sm shadow-sm focus:ring-2 focus:ring-[#8884D8] focus:border-[#8884D8]"
+                              />
+                          </div>
                       </div>
-                   </div>
-               </div>
-                {/* --- Другий Рядок Фільтрів --- */}
+
+                      {/* Таймлайн років та місяців */}
+                      <div className="space-y-3">
+                          {availableYearsAndMonths.map(({ year, months }) => (
+                              <div key={year} className="space-y-2">
+                                  {/* Рядок року */}
+                                  <div className="flex items-center gap-3">
+                                      <button
+                                          onClick={() => handleYearClick(year)}
+                                          className={`text-sm font-bold px-3 py-1 rounded-lg transition-colors duration-150 ${
+                                              isYearFullyActive(year)
+                                                  ? 'bg-[#8884D8] text-white'
+                                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                          }`}
+                                      >
+                                          {year}
+                                      </button>
+                                      {/* Місяці - 12 на десктопі, 6 на мобільному */}
+                                      <div className="flex-1 grid grid-cols-6 md:grid-cols-12 gap-1">
+                                          {months.map((month) => {
+                                              const isActive = isMonthActive(year, month);
+                                              const monthKey = `${year}-${month}`;
+                                              const isSelecting = selectedMonthRange.start === monthKey;
+
+                                              return (
+                                                  <button
+                                                      key={month}
+                                                      onClick={() => handleMonthClick(year, month)}
+                                                      className={`
+                                                          w-full aspect-square rounded-full text-xs font-medium
+                                                          transition-all duration-150 flex items-center justify-center
+                                                          ${isActive
+                                                              ? 'bg-[#8884D8] text-white shadow-md'
+                                                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                          }
+                                                          ${isSelecting ? 'ring-2 ring-[#00C49F] ring-offset-1' : ''}
+                                                      `}
+                                                      title={`${MONTH_NAMES_SHORT[month]} ${year}`}
+                                                  >
+                                                      {MONTH_NAMES_SHORT[month]}
+                                                  </button>
+                                              );
+                                          })}
+                                      </div>
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+              )}
+          </div>
+
+          {/* --- БЛОК ФІЛЬТРИ --- */}
+          <div className="mb-6 border rounded bg-white shadow">
+              <h2
+                  className="text-lg font-semibold p-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 select-none flex items-center justify-between"
+                  onClick={() => setIsFiltersOpen(!isFiltersOpen)}
+              >
+                  <span>Фільтри</span>
+                  <span className="text-gray-400 text-sm">{isFiltersOpen ? '▲' : '▼'}</span>
+              </h2>
+              {isFiltersOpen && (
+                  <div className="p-4 pt-0 space-y-4">
+                      {/* Тип транзакції */}
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Тип</label>
+                          <div className="flex rounded border border-gray-300 overflow-hidden shadow-sm">
+                              {(['Всі', 'Надходження', 'Витрата'] as const).map((type, index) => {
+                                  const getTypeColors = () => {
+                                      if (selectedType !== type) return 'bg-white text-gray-700 hover:bg-gray-100';
+                                      switch(type) {
+                                          case 'Всі': return 'bg-[#8884D8] text-white';
+                                          case 'Надходження': return 'bg-[#00C49F] text-white';
+                                          case 'Витрата': return 'bg-[#FF8042] text-white';
+                                      }
+                                  };
+                                  return (
+                                      <button
+                                          key={type}
+                                          onClick={() => setSelectedType(type)}
+                                          className={`flex-1 px-3 py-2 text-sm text-center transition-colors duration-150 ease-in-out ${getTypeColors()} ${index > 0 ? 'border-l border-gray-300' : ''}`}
+                                      >
+                                          {type}
+                                      </button>
+                                  );
+                              })}
+                          </div>
+                      </div>
+
+                      {/* --- Рядок Фільтрів --- */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-start pt-2">
                     {/* Колонка 1: Рахунки */}
                     <div className="flex flex-col">
@@ -607,6 +775,8 @@ const TransactionsPage: React.FC = () => {
                         </div>
                    </div>
                 </div>
+                  </div>
+              )}
           </div>
           {/* --- Кінець ФІЛЬТРІВ --- */}
 
