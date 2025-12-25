@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
 } from 'recharts';
+import { usePersistedFilters } from '@/hooks/usePersistedState';
 
 // --- Типи даних ---
 interface Transaction {
@@ -20,6 +21,17 @@ interface Transaction {
 interface CategoryInfo {
     name: string;
     type: string;
+}
+
+// Інтерфейс для збережених фільтрів сторінки Earn
+interface EarnPersistedFilters {
+    startDate: string;
+    endDate: string;
+    selectedCategories: string[];
+    isDateIntervalOpen: boolean;
+    isDynamicsOpen: boolean;
+    sortColumn: string;
+    sortDirection: 'asc' | 'desc';
 }
 
 // --- Хелпери ---
@@ -73,37 +85,60 @@ const EXCLUDED_CATEGORIES = ['Початковий баланс', 'Перека�
 // Кольори для ліній графіка
 const LINE_COLORS = ['#8884D8', '#00C49F', '#FFBB28', '#FF8042', '#0088FE', '#82CA9D', '#FFC658', '#FF7C7C', '#A4DE6C', '#D0ED57'];
 
+// Функція для отримання початкових дат
+const getDefaultEarnDates = () => {
+    const today = new Date();
+    const startOfYear = new Date(Date.UTC(today.getFullYear(), 0, 1));
+    return { start: formatDateForInput(startOfYear), end: formatDateForInput(today) };
+};
+
 const EarnPage: React.FC = () => {
-    // --- Стан ---
+    // --- Стан даних (не зберігається) ---
     const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
     const [categories, setCategories] = useState<CategoryInfo[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Стан для дат
-    const getInitialDates = useCallback(() => {
-        const today = new Date();
-        const startOfYear = new Date(Date.UTC(today.getFullYear(), 0, 1));
-        return { start: formatDateForInput(startOfYear), end: formatDateForInput(today) };
-    }, []);
+    // Початкові дати
+    const defaultDates = useMemo(() => getDefaultEarnDates(), []);
 
-    const initialDates = useMemo(() => getInitialDates(), [getInitialDates]);
-    const [startDate, setStartDate] = useState<string>(initialDates.start);
-    const [endDate, setEndDate] = useState<string>(initialDates.end);
+    // --- Збережені фільтри (зберігаються в localStorage) ---
+    const [filters, updateFilters] = usePersistedFilters<EarnPersistedFilters>(
+        'finance-tracker-earn-filters',
+        {
+            startDate: defaultDates.start,
+            endDate: defaultDates.end,
+            selectedCategories: [],
+            isDateIntervalOpen: true,
+            isDynamicsOpen: true,
+            sortColumn: 'date',
+            sortDirection: 'desc',
+        }
+    );
 
-    // Стан для вибору місяців
+    // Деструктуруємо фільтри для зручності
+    const {
+        startDate, endDate, selectedCategories,
+        isDateIntervalOpen, isDynamicsOpen, sortColumn, sortDirection
+    } = filters;
+
+    // Функції-сеттери для фільтрів
+    const setStartDate = useCallback((value: string) => updateFilters({ startDate: value }), [updateFilters]);
+    const setEndDate = useCallback((value: string) => updateFilters({ endDate: value }), [updateFilters]);
+    const setSelectedCategories = useCallback((value: string[] | ((prev: string[]) => string[])) => {
+        if (typeof value === 'function') {
+            updateFilters({ selectedCategories: value(filters.selectedCategories) });
+        } else {
+            updateFilters({ selectedCategories: value });
+        }
+    }, [updateFilters, filters.selectedCategories]);
+    const setIsDateIntervalOpen = useCallback((value: boolean) => updateFilters({ isDateIntervalOpen: value }), [updateFilters]);
+    const setIsDynamicsOpen = useCallback((value: boolean) => updateFilters({ isDynamicsOpen: value }), [updateFilters]);
+    const setSortColumn = useCallback((value: string) => updateFilters({ sortColumn: value }), [updateFilters]);
+    const setSortDirection = useCallback((value: 'asc' | 'desc') => updateFilters({ sortDirection: value }), [updateFilters]);
+
+    // Стан для вибору місяців (не зберігається)
     const [selectedMonthRange, setSelectedMonthRange] = useState<{start: string | null, end: string | null}>({start: null, end: null});
-
-    // Стан для вибору категорій (множинний вибір)
-    const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-
-    // Стан для згортання блоків
-    const [isDateIntervalOpen, setIsDateIntervalOpen] = useState<boolean>(true);
-    const [isDynamicsOpen, setIsDynamicsOpen] = useState<boolean>(true);
-
-    // Стан для сортування таблиці
-    const [sortColumn, setSortColumn] = useState<string>('date');
-    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
     // Скорочені назви місяців українською
     const MONTH_NAMES_SHORT = ['СІЧ', 'ЛЮТ', 'БЕР', 'КВІ', 'ТРА', 'ЧЕР', 'ЛИП', 'СЕР', 'ВЕР', 'ЖОВ', 'ЛИС', 'ГРУ'];
@@ -139,9 +174,20 @@ const EarnPage: React.FC = () => {
 
              setCategories(cleanedCategories);
 
-             // Встановлюємо першу категорію як обрану за замовчуванням
-             if (cleanedCategories.length > 0 && selectedCategories.length === 0) {
-               setSelectedCategories([cleanedCategories[0].name]);
+             // Встановлюємо категорії за замовчуванням тільки якщо:
+             // - немає збережених категорій
+             // - або жодна зі збережених категорій не існує в списку
+             if (cleanedCategories.length > 0) {
+               const savedCategories = filters.selectedCategories;
+               const validCategories = savedCategories.filter(cat =>
+                 cleanedCategories.some((c: CategoryInfo) => c.name === cat)
+               );
+               if (validCategories.length === 0) {
+                 setSelectedCategories([cleanedCategories[0].name]);
+               } else if (validCategories.length !== savedCategories.length) {
+                 // Оновлюємо, щоб видалити неіснуючі категорії
+                 setSelectedCategories(validCategories);
+               }
              }
            } catch (err) {
              setError(err instanceof Error ? err.message : 'An unknown error occurred.');
@@ -150,7 +196,7 @@ const EarnPage: React.FC = () => {
            finally { setIsLoading(false); }
         };
         fetchData();
-     }, []);
+     }, [filters.selectedCategories, setSelectedCategories]);
 
     // --- Генерація років та місяців ---
     const availableYearsAndMonths = useMemo(() => {
@@ -246,12 +292,12 @@ const EarnPage: React.FC = () => {
     // Обробник сортування таблиці
     const handleSort = useCallback((column: string) => {
         if (sortColumn === column) {
-            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
         } else {
             setSortColumn(column);
             setSortDirection(column === 'date' ? 'desc' : 'asc');
         }
-    }, [sortColumn]);
+    }, [sortColumn, sortDirection, setSortColumn, setSortDirection]);
 
     // --- Обробка даних для графіка та таблиці ---
     const processedData = useMemo(() => {
