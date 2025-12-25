@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
     ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
     PieChart, Pie, Cell
 } from 'recharts';
+import { usePersistedFilters } from '@/hooks/usePersistedState';
 
 // --- Типи даних ---
 interface Transaction {
@@ -32,6 +33,23 @@ interface MonthlyChartData {
 }
 interface BalanceDetails {
     [account: string]: number;
+}
+
+// Інтерфейс для збережених фільтрів
+interface PersistedFilters {
+    startDate: string;
+    endDate: string;
+    selectedAccounts: string[];
+    selectedCategories: string[];
+    selectedCounterparties: string[];
+    selectedProjects: string[];
+    selectedType: string;
+    isDateIntervalOpen: boolean;
+    isFiltersOpen: boolean;
+    isChartDynamicsOpen: boolean;
+    isChartDistributionOpen: boolean;
+    sortColumn: string;
+    sortDirection: 'asc' | 'desc';
 }
 // --- Кінець типів ---
 
@@ -129,8 +147,16 @@ const TooltipWithCalculation: React.FC<{
     );
 };
 
+// Функція для отримання початкових дат (за межами компонента для стабільності)
+const getDefaultDates = () => {
+    const today = new Date();
+    const hundredDaysAgo = new Date(today);
+    hundredDaysAgo.setDate(today.getDate() - 99);
+    return { start: formatDateForInput(hundredDaysAgo), end: formatDateForInput(today) };
+};
+
 const TransactionsPage: React.FC = () => {
-    // --- Стан ---
+    // --- Стан даних (не зберігається) ---
     const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
     const [accounts, setAccounts] = useState<string[]>([]);
     const [categories, setCategories] = useState<CategoryInfo[]>([]);
@@ -138,25 +164,78 @@ const TransactionsPage: React.FC = () => {
     const [projects, setProjects] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    // Повна функція getInitialDates
-    const getInitialDates = useCallback(() => {
-        const today = new Date();
-        const hundredDaysAgo = new Date(today);
-        hundredDaysAgo.setDate(today.getDate() - 99); // 100 днів включно з сьогодні
-        return { start: formatDateForInput(hundredDaysAgo), end: formatDateForInput(today) }
-    }, []); // Використовуємо useCallback
 
-    const initialDates = useMemo(() => getInitialDates(), [getInitialDates]); // Викликаємо один раз
+    // Початкові дати
+    const defaultDates = useMemo(() => getDefaultDates(), []);
 
-    const [startDate, setStartDate] = useState<string>(initialDates.start);
-    const [endDate, setEndDate] = useState<string>(initialDates.end);
-    const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
-    const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-    const [selectedCounterparties, setSelectedCounterparties] = useState<string[]>([]);
-    const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
-    const [selectedType, setSelectedType] = useState<string>('Всі');
+    // --- Збережені фільтри (зберігаються в localStorage) ---
+    const [filters, updateFilters] = usePersistedFilters<PersistedFilters>(
+        'finance-tracker-main-filters',
+        {
+            startDate: defaultDates.start,
+            endDate: defaultDates.end,
+            selectedAccounts: [],
+            selectedCategories: [],
+            selectedCounterparties: [],
+            selectedProjects: [],
+            selectedType: 'Всі',
+            isDateIntervalOpen: true,
+            isFiltersOpen: true,
+            isChartDynamicsOpen: true,
+            isChartDistributionOpen: true,
+            sortColumn: 'date',
+            sortDirection: 'desc',
+        }
+    );
 
-    // Стан для згортання фільтрів на мобільній версії
+    // Деструктуруємо фільтри для зручності
+    const {
+        startDate, endDate, selectedAccounts, selectedCategories,
+        selectedCounterparties, selectedProjects, selectedType,
+        isDateIntervalOpen, isFiltersOpen, isChartDynamicsOpen, isChartDistributionOpen,
+        sortColumn, sortDirection
+    } = filters;
+
+    // Функції-сеттери для фільтрів
+    const setStartDate = useCallback((value: string) => updateFilters({ startDate: value }), [updateFilters]);
+    const setEndDate = useCallback((value: string) => updateFilters({ endDate: value }), [updateFilters]);
+    const setSelectedAccounts = useCallback((value: string[] | ((prev: string[]) => string[])) => {
+        if (typeof value === 'function') {
+            updateFilters({ selectedAccounts: value(filters.selectedAccounts) });
+        } else {
+            updateFilters({ selectedAccounts: value });
+        }
+    }, [updateFilters, filters.selectedAccounts]);
+    const setSelectedCategories = useCallback((value: string[] | ((prev: string[]) => string[])) => {
+        if (typeof value === 'function') {
+            updateFilters({ selectedCategories: value(filters.selectedCategories) });
+        } else {
+            updateFilters({ selectedCategories: value });
+        }
+    }, [updateFilters, filters.selectedCategories]);
+    const setSelectedCounterparties = useCallback((value: string[] | ((prev: string[]) => string[])) => {
+        if (typeof value === 'function') {
+            updateFilters({ selectedCounterparties: value(filters.selectedCounterparties) });
+        } else {
+            updateFilters({ selectedCounterparties: value });
+        }
+    }, [updateFilters, filters.selectedCounterparties]);
+    const setSelectedProjects = useCallback((value: string[] | ((prev: string[]) => string[])) => {
+        if (typeof value === 'function') {
+            updateFilters({ selectedProjects: value(filters.selectedProjects) });
+        } else {
+            updateFilters({ selectedProjects: value });
+        }
+    }, [updateFilters, filters.selectedProjects]);
+    const setSelectedType = useCallback((value: string) => updateFilters({ selectedType: value }), [updateFilters]);
+    const setIsDateIntervalOpen = useCallback((value: boolean) => updateFilters({ isDateIntervalOpen: value }), [updateFilters]);
+    const setIsFiltersOpen = useCallback((value: boolean) => updateFilters({ isFiltersOpen: value }), [updateFilters]);
+    const setIsChartDynamicsOpen = useCallback((value: boolean) => updateFilters({ isChartDynamicsOpen: value }), [updateFilters]);
+    const setIsChartDistributionOpen = useCallback((value: boolean) => updateFilters({ isChartDistributionOpen: value }), [updateFilters]);
+    const setSortColumn = useCallback((value: string) => updateFilters({ sortColumn: value }), [updateFilters]);
+    const setSortDirection = useCallback((value: 'asc' | 'desc') => updateFilters({ sortDirection: value }), [updateFilters]);
+
+    // Стан для згортання фільтрів на мобільній версії (не зберігається)
     const [expandedFilters, setExpandedFilters] = useState<{[key: string]: boolean}>({
         accounts: false,
         income: false,
@@ -165,19 +244,7 @@ const TransactionsPage: React.FC = () => {
         projects: false,
     });
 
-    // Стан для сортування таблиці
-    const [sortColumn, setSortColumn] = useState<string>('date');
-    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-
-    // Стан для згортання блоків графіків
-    const [isChartDynamicsOpen, setIsChartDynamicsOpen] = useState<boolean>(true);
-    const [isChartDistributionOpen, setIsChartDistributionOpen] = useState<boolean>(true);
-
-    // Стан для згортання блоків дат та фільтрів
-    const [isDateIntervalOpen, setIsDateIntervalOpen] = useState<boolean>(true);
-    const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(true);
-
-    // Стан для вибору місяців на таймлайні (зберігаємо два вибраних місяці для діапазону)
+    // Стан для вибору місяців на таймлайні (не зберігається)
     const [selectedMonthRange, setSelectedMonthRange] = useState<{start: string | null, end: string | null}>({start: null, end: null});
 
     // --- Завантаження даних ---
@@ -227,12 +294,12 @@ const TransactionsPage: React.FC = () => {
     // Обробник сортування таблиці
     const handleSort = useCallback((column: string) => {
         if (sortColumn === column) {
-            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
         } else {
             setSortColumn(column);
             setSortDirection(column === 'date' ? 'desc' : 'asc');
         }
-    }, [sortColumn]);
+    }, [sortColumn, sortDirection, setSortColumn, setSortDirection]);
 
     // Скорочені назви місяців українською
     const MONTH_NAMES_SHORT = ['СІЧ', 'ЛЮТ', 'БЕР', 'КВІ', 'ТРА', 'ЧЕР', 'ЛИП', 'СЕР', 'ВЕР', 'ЖОВ', 'ЛИС', 'ГРУ'];

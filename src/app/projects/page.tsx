@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { usePersistedFilters } from '@/hooks/usePersistedState';
 
 // --- Типи даних ---
 interface Transaction {
@@ -18,6 +19,13 @@ interface ProjectWithBonuses {
   name: string;
   bonusFromSum: number | null;
   bonusFromBalance: number | null;
+}
+
+// Інтерфейс для збережених фільтрів сторінки Projects
+interface ProjectsPersistedFilters {
+    selectedProject: string;
+    sortColumn: string;
+    sortDirection: 'asc' | 'desc';
 }
 
 // --- Хелпери ---
@@ -87,16 +95,29 @@ const TooltipWithCalculation: React.FC<{
 };
 
 const ProjectsPage: React.FC = () => {
-    // --- Стан ---
+    // --- Стан даних (не зберігається) ---
     const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
     const [projectsWithBonuses, setProjectsWithBonuses] = useState<ProjectWithBonuses[]>([]);
-    const [selectedProject, setSelectedProject] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Стан для сортування таблиці
-    const [sortColumn, setSortColumn] = useState<string>('date');
-    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+    // --- Збережені фільтри (зберігаються в localStorage) ---
+    const [filters, updateFilters] = usePersistedFilters<ProjectsPersistedFilters>(
+        'finance-tracker-projects-filters',
+        {
+            selectedProject: '',
+            sortColumn: 'date',
+            sortDirection: 'desc',
+        }
+    );
+
+    // Деструктуруємо фільтри для зручності
+    const { selectedProject, sortColumn, sortDirection } = filters;
+
+    // Функції-сеттери для фільтрів
+    const setSelectedProject = useCallback((value: string) => updateFilters({ selectedProject: value }), [updateFilters]);
+    const setSortColumn = useCallback((value: string) => updateFilters({ sortColumn: value }), [updateFilters]);
+    const setSortDirection = useCallback((value: 'asc' | 'desc') => updateFilters({ sortDirection: value }), [updateFilters]);
 
     // --- Завантаження даних ---
     useEffect(() => {
@@ -133,9 +154,15 @@ const ProjectsPage: React.FC = () => {
 
              setProjectsWithBonuses(projectsData);
 
-             // Встановлюємо перший проект за замовчуванням
-             if (projectsData.length > 0 && !selectedProject) {
-               setSelectedProject(projectsData[0].name);
+             // Встановлюємо проект за замовчуванням тільки якщо:
+             // - немає збереженого проекту
+             // - або збережений проект не існує в списку
+             if (projectsData.length > 0) {
+               const savedProject = filters.selectedProject;
+               const projectExists = projectsData.some(p => p.name === savedProject);
+               if (!savedProject || !projectExists) {
+                 setSelectedProject(projectsData[0].name);
+               }
              }
            } catch (err) {
              setError(err instanceof Error ? err.message : 'An unknown error occurred.');
@@ -144,17 +171,17 @@ const ProjectsPage: React.FC = () => {
            finally { setIsLoading(false); }
         };
         fetchData();
-     }, []);
+     }, [filters.selectedProject, setSelectedProject]);
 
     // Обробник сортування таблиці
     const handleSort = useCallback((column: string) => {
         if (sortColumn === column) {
-            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
         } else {
             setSortColumn(column);
             setSortDirection(column === 'date' ? 'desc' : 'asc');
         }
-    }, [sortColumn]);
+    }, [sortColumn, sortDirection, setSortColumn, setSortDirection]);
 
     // --- Обчислення даних для обраного проекту ---
     const projectData = useMemo(() => {
