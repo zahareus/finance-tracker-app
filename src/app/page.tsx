@@ -201,32 +201,32 @@ const TransactionsPage: React.FC = () => {
     const setEndDate = useCallback((value: string) => updateFilters({ endDate: value }), [updateFilters]);
     const setSelectedAccounts = useCallback((value: string[] | ((prev: string[]) => string[])) => {
         if (typeof value === 'function') {
-            updateFilters({ selectedAccounts: value(filters.selectedAccounts) });
+            updateFilters(prev => ({ selectedAccounts: value(prev.selectedAccounts) }));
         } else {
             updateFilters({ selectedAccounts: value });
         }
-    }, [updateFilters, filters.selectedAccounts]);
+    }, [updateFilters]);
     const setSelectedCategories = useCallback((value: string[] | ((prev: string[]) => string[])) => {
         if (typeof value === 'function') {
-            updateFilters({ selectedCategories: value(filters.selectedCategories) });
+            updateFilters(prev => ({ selectedCategories: value(prev.selectedCategories) }));
         } else {
             updateFilters({ selectedCategories: value });
         }
-    }, [updateFilters, filters.selectedCategories]);
+    }, [updateFilters]);
     const setSelectedCounterparties = useCallback((value: string[] | ((prev: string[]) => string[])) => {
         if (typeof value === 'function') {
-            updateFilters({ selectedCounterparties: value(filters.selectedCounterparties) });
+            updateFilters(prev => ({ selectedCounterparties: value(prev.selectedCounterparties) }));
         } else {
             updateFilters({ selectedCounterparties: value });
         }
-    }, [updateFilters, filters.selectedCounterparties]);
+    }, [updateFilters]);
     const setSelectedProjects = useCallback((value: string[] | ((prev: string[]) => string[])) => {
         if (typeof value === 'function') {
-            updateFilters({ selectedProjects: value(filters.selectedProjects) });
+            updateFilters(prev => ({ selectedProjects: value(prev.selectedProjects) }));
         } else {
             updateFilters({ selectedProjects: value });
         }
-    }, [updateFilters, filters.selectedProjects]);
+    }, [updateFilters]);
     const setSelectedType = useCallback((value: string) => updateFilters({ selectedType: value }), [updateFilters]);
     const setIsDateIntervalOpen = useCallback((value: boolean) => updateFilters({ isDateIntervalOpen: value }), [updateFilters]);
     const setIsFiltersOpen = useCallback((value: boolean) => updateFilters({ isFiltersOpen: value }), [updateFilters]);

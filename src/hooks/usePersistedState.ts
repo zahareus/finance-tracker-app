@@ -62,7 +62,7 @@ export function usePersistedState<T>(
 export function usePersistedFilters<T extends Record<string, any>>(
   key: string,
   defaultState: T
-): [T, (updates: Partial<T>) => void, () => void] {
+): [T, (updates: Partial<T> | ((prev: T) => Partial<T>)) => void, () => void] {
   const isInitialized = useRef(false);
   const [state, setState] = useState<T>(defaultState);
 
@@ -95,9 +95,12 @@ export function usePersistedFilters<T extends Record<string, any>>(
     }
   }, [key, state]);
 
-  // Update specific fields
-  const updateState = useCallback((updates: Partial<T>) => {
-    setState(prev => ({ ...prev, ...updates }));
+  // Update specific fields - supports both object and function updates
+  const updateState = useCallback((updates: Partial<T> | ((prev: T) => Partial<T>)) => {
+    setState(prev => {
+      const newUpdates = typeof updates === 'function' ? updates(prev) : updates;
+      return { ...prev, ...newUpdates };
+    });
   }, []);
 
   // Reset to defaults
