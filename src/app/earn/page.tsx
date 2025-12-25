@@ -127,11 +127,11 @@ const EarnPage: React.FC = () => {
     const setEndDate = useCallback((value: string) => updateFilters({ endDate: value }), [updateFilters]);
     const setSelectedCategories = useCallback((value: string[] | ((prev: string[]) => string[])) => {
         if (typeof value === 'function') {
-            updateFilters({ selectedCategories: value(filters.selectedCategories) });
+            updateFilters(prev => ({ selectedCategories: value(prev.selectedCategories) }));
         } else {
             updateFilters({ selectedCategories: value });
         }
-    }, [updateFilters, filters.selectedCategories]);
+    }, [updateFilters]);
     const setIsDateIntervalOpen = useCallback((value: boolean) => updateFilters({ isDateIntervalOpen: value }), [updateFilters]);
     const setIsDynamicsOpen = useCallback((value: boolean) => updateFilters({ isDynamicsOpen: value }), [updateFilters]);
     const setSortColumn = useCallback((value: string) => updateFilters({ sortColumn: value }), [updateFilters]);
