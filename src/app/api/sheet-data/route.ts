@@ -53,7 +53,7 @@ export async function GET() {
       'Accounts!A2:A',
       'Categories!A2:B',
       'Agents!A2:A',
-      'Projects!A2:C', // Колонки: A - назва, B - бонус з суми, C - бонус з балансу
+      'Projects!A2:D', // Колонки: A - назва, B - бонус з суми, C - бонус з балансу, D - статус
     ];
 
     const response = await sheets.spreadsheets.values.batchGet({
@@ -94,12 +94,13 @@ export async function GET() {
     const rawCounterparties = response.data.valueRanges[3]?.values || [];
     const counterparties = rawCounterparties.flat().filter(Boolean); // Аналогічно до accounts
 
-    // Обробка проектів з бонусами
+    // Обробка проектів з бонусами та статусом
     const rawProjects = response.data.valueRanges[4]?.values || [];
     const projects = rawProjects.map(row => ({
       name: row[0] || '',
       bonusFromSum: row[1] ? parseFloat(String(row[1]).replace(/,/g, '.').replace(/\s/g, '')) : null,
       bonusFromBalance: row[2] ? parseFloat(String(row[2]).replace(/,/g, '.').replace(/\s/g, '')) : null,
+      status: row[3] ? String(row[3]).trim().toLowerCase() : '', // live, closed, або пусто
     })).filter(p => p.name);
 
     // Також повертаємо список назв проектів для зворотної сумісності
