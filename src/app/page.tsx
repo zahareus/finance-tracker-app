@@ -11,6 +11,7 @@ import { useSheetData } from '@/hooks/useSheetData';
 // --- Типи даних ---
 interface Transaction {
   row?: number; // Номер рядка в Google Sheets
+  id?: string | null; // Стабільний ID з колонки I (T0001…)
   date: string | null;
   amount: number;
   type: string; // 'Надходження' або 'Витрата'
@@ -165,7 +166,7 @@ const TransactionsPage: React.FC = () => {
     const [counterparties, setCounterparties] = useState<string[]>([]);
     const [projects, setProjects] = useState<string[]>([]);
     const { data, isLoading, error } = useSheetData();
-    const [skippedRows, setSkippedRows] = useState<number[]>([]);
+    const [skippedRows, setSkippedRows] = useState<string[]>([]);
 
     // Початкові дати
     const defaultDates = useMemo(() => getDefaultDates(), []);
@@ -258,8 +259,8 @@ const TransactionsPage: React.FC = () => {
     useEffect(() => {
         if (!data) return;
         try {
-             const skipped: number[] = [];
-             const cleanedTransactions = data.transactions.map((tx: any) => ({ row: typeof tx.row === 'number' ? tx.row : undefined, date: typeof tx.date === 'string' ? tx.date.trim() : null, amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0, type: String(tx?.type || '').trim(), account: String(tx?.account || '').trim(), category: String(tx?.category || '').trim(), description: String(tx?.description || '').trim(), counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '', project: tx?.project ? String(tx.project).trim() : '', })).filter((tx: Transaction, index: number) => { const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount); if (!isValid) { skipped.push(tx.row ?? index + 2); console.warn(`Workspace_DATA: Invalid transaction structure at raw index ${index}:`, data.transactions[index], 'Resulted in:', tx); } return isValid; });
+             const skipped: string[] = [];
+             const cleanedTransactions = data.transactions.map((tx: any) => ({ row: typeof tx.row === 'number' ? tx.row : undefined, id: tx.id ? String(tx.id).trim() : null, date: typeof tx.date === 'string' ? tx.date.trim() : null, amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0, type: String(tx?.type || '').trim(), account: String(tx?.account || '').trim(), category: String(tx?.category || '').trim(), description: String(tx?.description || '').trim(), counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '', project: tx?.project ? String(tx.project).trim() : '', })).filter((tx: Transaction, index: number) => { const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount); if (!isValid) { skipped.push(tx.id || ('№' + (tx.row ?? index + 2))); console.warn(`Workspace_DATA: Invalid transaction structure at raw index ${index}:`, data.transactions[index], 'Resulted in:', tx); } return isValid; });
              setSkippedRows(skipped);
              const cleanedAccounts = data.accounts.flat().map((acc: any) => String(acc || '').trim()).filter(Boolean);
              const cleanedCategories = data.categories.map((cat: any) => ({ name: String(cat?.name || '').trim(), type: String(cat?.type || '').trim() })).filter((cat: CategoryInfo) => cat.name && (cat.type === 'Надходження' || cat.type === 'Витрата'));
@@ -627,6 +628,7 @@ const TransactionsPage: React.FC = () => {
         const writeXlsxFile = (await import('write-excel-file/browser')).default;
         const header = (value: string) => ({ value, fontWeight: 'bold' as const });
         const columns = [
+            { header: header('ID'), width: 8, cell: (tx: Transaction) => ({ type: String, value: tx.id || '' }) },
             { header: header('Дата'), width: 12, cell: (tx: Transaction) => ({ type: String, value: tx.date || '' }) },
             { header: header('Сума'), width: 14, cell: (tx: Transaction) => ({ type: Number, format: '#,##0.00', value: tx.type === 'Витрата' ? -tx.amount : tx.amount }) },
             { header: header('Тип'), width: 14, cell: (tx: Transaction) => ({ type: String, value: tx.type || '' }) },
@@ -1080,7 +1082,7 @@ const TransactionsPage: React.FC = () => {
               <div className="overflow-x-auto mt-4">
                  {skippedRows.length > 0 && (
                    <p className="mb-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2" title="Рядок без дати, рахунку, категорії або з типом не «Надходження»/«Витрата» у звіт не потрапляє">
-                     Пропущено {skippedRows.length} {skippedRows.length === 1 ? 'рядок' : skippedRows.length < 5 ? 'рядки' : 'рядків'} таблиці з неповними даними: №{skippedRows.slice(0, 20).join(', №')}{skippedRows.length > 20 ? '…' : ''}
+                     Пропущено {skippedRows.length} {skippedRows.length === 1 ? 'рядок' : skippedRows.length < 5 ? 'рядки' : 'рядків'} таблиці з неповними даними: {skippedRows.slice(0, 20).join(', ')}{skippedRows.length > 20 ? '…' : ''}
                    </p>
                  )}
                  <div className="flex items-center justify-between mb-2 gap-2">
@@ -1099,6 +1101,7 @@ const TransactionsPage: React.FC = () => {
                  <table className="min-w-full divide-y divide-gray-200">
                    <thead className="bg-gray-50">
                      <tr>
+                       <th scope="col" className="px-2 py-2 text-left text-xs uppercase tracking-wider font-medium text-gray-400">ID</th>
                        <th
                          scope="col"
                          className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'date' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
@@ -1153,10 +1156,11 @@ const TransactionsPage: React.FC = () => {
                    <tbody className="bg-white divide-y divide-gray-200">
                      {/* Сортування */}
                      {processedData.filteredTransactions.length === 0 ? (
-                       <tr> <td colSpan={7} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
+                       <tr> <td colSpan={8} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
                      ) : (
                        sortedTransactions.map((tx, index) => (
                            <tr key={`${tx.date}-${index}-${tx.amount}`} className={`${tx.type === 'Витрата' ? 'bg-red-50 hover:bg-red-100' : 'bg-green-50 hover:bg-green-100'} transition-colors duration-150 ease-in-out`}>
+                             <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-400 font-mono">{tx.id || ''}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{tx.date}</td>
                              <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-medium ${tx.type === 'Витрата' ? 'text-[#FF8042]' : 'text-[#00C49F]'}`}> {tx.type === 'Витрата' ? '-' : '+'} {formatNumber(tx.amount)} ₴ </td>
                              <td className="px-4 py-2 text-sm text-gray-500 max-w-[200px] truncate">{tx.description}</td>
@@ -1178,7 +1182,7 @@ const TransactionsPage: React.FC = () => {
                                  <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-green-800">
                                      + {formatNumber(totalSums.income)} ₴
                                  </td>
-                                 <td colSpan={5} className="px-4 py-2 text-sm text-green-800">
+                                 <td colSpan={6} className="px-4 py-2 text-sm text-green-800">
                                      <TooltipWithCalculation calculation={summaryCalculations.income}>
                                          <span>Сума надходжень</span>
                                      </TooltipWithCalculation>
@@ -1192,7 +1196,7 @@ const TransactionsPage: React.FC = () => {
                                  <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-red-800">
                                      - {formatNumber(totalSums.expense)} ₴
                                  </td>
-                                 <td colSpan={5} className="px-4 py-2 text-sm text-red-800">
+                                 <td colSpan={6} className="px-4 py-2 text-sm text-red-800">
                                      <TooltipWithCalculation calculation={summaryCalculations.expense}>
                                          <span>Сума видатків</span>
                                      </TooltipWithCalculation>
@@ -1206,7 +1210,7 @@ const TransactionsPage: React.FC = () => {
                                  <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-bold ${totalSums.balance >= 0 ? 'text-purple-800' : 'text-red-600'}`}>
                                      {formatNumber(totalSums.balance)} ₴
                                  </td>
-                                 <td colSpan={5} className="px-4 py-2 text-sm text-purple-800">
+                                 <td colSpan={6} className="px-4 py-2 text-sm text-purple-800">
                                      <TooltipWithCalculation calculation={summaryCalculations.balance}>
                                          <span>Надходження - Видатки</span>
                                      </TooltipWithCalculation>

@@ -49,7 +49,7 @@ export async function GET() {
     const sheets = google.sheets({ version: 'v4', auth });
 
     const ranges = [
-      'Transactions!A2:H',
+      'Transactions!A2:I',
       'Accounts!A2:A',
       'Categories!A2:B',
       'Agents!A2:A',
@@ -71,6 +71,7 @@ export async function GET() {
     // row = номер рядка в Sheets (A2 = 2), щоб фронт міг назвати пропущені рядки
     const transactions = rawTransactions.map((row, index) => ({
       row: index + 2,
+      id: row[8] ? String(row[8]).trim() : null, // Колонка I — стабільний ID (T0001…), ставить Apps Script
       date: row[0] || null,
       amount: parseFloat(String(row[1]).replace(/,/g, '.').replace(/\s/g, '')) || 0, // Покращене перетворення суми
       type: row[2] || '',
