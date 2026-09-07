@@ -41,3 +41,4 @@ pnpm-debug.log*
 
 # Vercel
 .vercel
+next-env.d.ts

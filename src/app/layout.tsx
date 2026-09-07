@@ -40,12 +40,13 @@ export default function RootLayout({
   const [headerAllTransactions, setHeaderAllTransactions] = useState<Transaction[]>([]);
   const [headerAccounts, setHeaderAccounts] = useState<string[]>([]);
   const [headerIsLoading, setHeaderIsLoading] = useState<boolean>(true);
+  const [headerError, setHeaderError] = useState<string | null>(null);
 
   // --- Завантаження даних для хедера ---
   useEffect(() => {
     document.title = 'Місцеві гроші: фінансова звітність';
     const fetchHeaderData = async () => {
-       setHeaderIsLoading(true);
+       setHeaderIsLoading(true); setHeaderError(null);
        try {
          const response = await fetch('/api/sheet-data');
          if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
@@ -53,7 +54,7 @@ export default function RootLayout({
          if (!Array.isArray(data.transactions) || !Array.isArray(data.accounts)) { throw new Error("Invalid data structure for header."); }
          setHeaderAllTransactions(Array.isArray(data.transactions) ? data.transactions : []);
          setHeaderAccounts(Array.isArray(data.accounts) ? data.accounts.flat().map(String).filter(Boolean) : []);
-       } catch (err) { console.error("Failed to fetch header data:", err); }
+       } catch (err) { console.error("Failed to fetch header data:", err); setHeaderError(err instanceof Error ? err.message : 'Unknown error'); }
        finally { setHeaderIsLoading(false); }
     };
     fetchHeaderData();
@@ -130,7 +131,8 @@ export default function RootLayout({
              {/* Показники (по центру) */}
               {/* Займає всю ширину на моб, центрується на десктопі */}
              <div className="w-full md:flex-grow flex justify-center items-center gap-x-4 sm:gap-x-6 gap-y-1 flex-wrap order-3 md:order-2 py-1 md:py-0">
-               {headerIsLoading ? ( <span className="text-xs md:text-sm text-gray-500">Завантаження...</span> ) : (
+               {headerIsLoading ? ( <span className="text-xs md:text-sm text-gray-500">Завантаження...</span> )
+                : headerError ? ( <span className="text-xs md:text-sm font-medium text-red-600" title={headerError}>Помилка завантаження даних</span> ) : (
                    <>
                        <div title={headerMetrics.balanceTooltipText} className="text-center md:text-left"> {/* Центрування для моб */}
                            <span className="text-xs md:text-sm font-medium text-gray-500">Кошти: </span>
