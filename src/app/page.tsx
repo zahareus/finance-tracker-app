@@ -622,32 +622,22 @@ const TransactionsPage: React.FC = () => {
         });
     }, [processedData.filteredTransactions, sortColumn, sortDirection]);
 
-    // ponytail: XLS = HTML-таблиця з excel-mime, Excel/Numbers/Sheets її читають. Справжній xlsx (SheetJS) — тільки якщо знадобляться формули чи кілька аркушів.
-    const handleExportXls = useCallback(() => {
-        const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const headers = ['Дата', 'Сума', 'Тип', 'Опис', 'Категорія', 'Рахунок', 'Контрагент', 'Проект'];
-        const rows = sortedTransactions.map(tx => [
-            esc(tx.date),
-            tx.type === 'Витрата' ? -tx.amount : tx.amount,
-            esc(tx.type),
-            esc(tx.description),
-            esc(tx.category),
-            esc(tx.account),
-            esc(tx.counterparty || ''),
-            esc(tx.project || ''),
-        ]);
-        const html = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body><table border="1">`
-            + `<tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>`
-            + rows.map(r => `<tr>${r.map((c, i) => i === 1 ? `<td>${c}</td>` : `<td style="mso-number-format:'\\@'">${c}</td>`).join('')}</tr>`).join('')
-            + `</table></body></html>`;
-        const url = URL.createObjectURL(new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8' }));
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `transactions-${new Date().toISOString().slice(0, 10)}.xls`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
+    // Справжній xlsx: OnlyOffice/Numbers відкривають HTML-таблицю з excel-mime як документ, не як таблицю
+    const handleExportXls = useCallback(async () => {
+        const writeXlsxFile = (await import('write-excel-file/browser')).default;
+        const header = (value: string) => ({ value, fontWeight: 'bold' as const });
+        const columns = [
+            { header: header('Дата'), width: 12, cell: (tx: Transaction) => ({ type: String, value: tx.date || '' }) },
+            { header: header('Сума'), width: 14, cell: (tx: Transaction) => ({ type: Number, format: '#,##0.00', value: tx.type === 'Витрата' ? -tx.amount : tx.amount }) },
+            { header: header('Тип'), width: 14, cell: (tx: Transaction) => ({ type: String, value: tx.type || '' }) },
+            { header: header('Опис'), width: 40, cell: (tx: Transaction) => ({ type: String, value: tx.description || '' }) },
+            { header: header('Категорія'), width: 18, cell: (tx: Transaction) => ({ type: String, value: tx.category || '' }) },
+            { header: header('Рахунок'), width: 14, cell: (tx: Transaction) => ({ type: String, value: tx.account || '' }) },
+            { header: header('Контрагент'), width: 20, cell: (tx: Transaction) => ({ type: String, value: tx.counterparty || '' }) },
+            { header: header('Проект'), width: 18, cell: (tx: Transaction) => ({ type: String, value: tx.project || '' }) },
+        ];
+        await writeXlsxFile(sortedTransactions, { columns, stickyRowsCount: 1 })
+            .toFile(`transactions-${new Date().toISOString().slice(0, 10)}.xlsx`);
     }, [sortedTransactions]);
 
     // Кольори для pie charts
@@ -1077,16 +1067,16 @@ const TransactionsPage: React.FC = () => {
           {!isLoading && !error && (
               <div className="overflow-x-auto mt-4">
                  <div className="flex items-center justify-between mb-2 gap-2">
-                   <span className="w-16" aria-hidden="true" />
+                   <span className="w-[4.5rem]" aria-hidden="true" />
                    <h2 className="text-lg font-semibold text-center flex-1">Детальні Транзакції за Період</h2>
                    <button
                      type="button"
                      onClick={handleExportXls}
                      disabled={sortedTransactions.length === 0}
-                     className="w-16 shrink-0 px-3 py-1 text-sm font-medium rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                     title="Завантажити транзакції звіту у XLS"
+                     className="w-[4.5rem] shrink-0 px-3 py-1 text-sm font-medium rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                     title="Завантажити транзакції звіту у XLSX"
                    >
-                     XLS
+                     XLSX
                    </button>
                  </div>
                  <table className="min-w-full divide-y divide-gray-200">
