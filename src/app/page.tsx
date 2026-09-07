@@ -10,6 +10,7 @@ import { useSheetData } from '@/hooks/useSheetData';
 
 // --- Типи даних ---
 interface Transaction {
+  row?: number; // Номер рядка в Google Sheets
   date: string | null;
   amount: number;
   type: string; // 'Надходження' або 'Витрата'
@@ -164,6 +165,7 @@ const TransactionsPage: React.FC = () => {
     const [counterparties, setCounterparties] = useState<string[]>([]);
     const [projects, setProjects] = useState<string[]>([]);
     const { data, isLoading, error } = useSheetData();
+    const [skippedRows, setSkippedRows] = useState<number[]>([]);
 
     // Початкові дати
     const defaultDates = useMemo(() => getDefaultDates(), []);
@@ -256,7 +258,9 @@ const TransactionsPage: React.FC = () => {
     useEffect(() => {
         if (!data) return;
         try {
-             const cleanedTransactions = data.transactions.map((tx: any) => ({ date: typeof tx.date === 'string' ? tx.date.trim() : null, amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0, type: String(tx?.type || '').trim(), account: String(tx?.account || '').trim(), category: String(tx?.category || '').trim(), description: String(tx?.description || '').trim(), counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '', project: tx?.project ? String(tx.project).trim() : '', })).filter((tx: Transaction, index: number) => { const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount); if (!isValid) console.warn(`Workspace_DATA: Invalid transaction structure at raw index ${index}:`, data.transactions[index], 'Resulted in:', tx); return isValid; });
+             const skipped: number[] = [];
+             const cleanedTransactions = data.transactions.map((tx: any) => ({ row: typeof tx.row === 'number' ? tx.row : undefined, date: typeof tx.date === 'string' ? tx.date.trim() : null, amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0, type: String(tx?.type || '').trim(), account: String(tx?.account || '').trim(), category: String(tx?.category || '').trim(), description: String(tx?.description || '').trim(), counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '', project: tx?.project ? String(tx.project).trim() : '', })).filter((tx: Transaction, index: number) => { const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount); if (!isValid) { skipped.push(tx.row ?? index + 2); console.warn(`Workspace_DATA: Invalid transaction structure at raw index ${index}:`, data.transactions[index], 'Resulted in:', tx); } return isValid; });
+             setSkippedRows(skipped);
              const cleanedAccounts = data.accounts.flat().map((acc: any) => String(acc || '').trim()).filter(Boolean);
              const cleanedCategories = data.categories.map((cat: any) => ({ name: String(cat?.name || '').trim(), type: String(cat?.type || '').trim() })).filter((cat: CategoryInfo) => cat.name && (cat.type === 'Надходження' || cat.type === 'Витрата'));
              const cleanedCounterparties = data.counterparties.flat().map((cp: any) => String(cp || '').trim()).filter(Boolean);
@@ -1074,6 +1078,11 @@ const TransactionsPage: React.FC = () => {
           {isLoading && <p className="mt-4 text-center">Завантаження транзакцій...</p>}
           {!isLoading && !error && (
               <div className="overflow-x-auto mt-4">
+                 {skippedRows.length > 0 && (
+                   <p className="mb-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2" title="Рядок без дати, рахунку, категорії або з типом не «Надходження»/«Витрата» у звіт не потрапляє">
+                     Пропущено {skippedRows.length} {skippedRows.length === 1 ? 'рядок' : skippedRows.length < 5 ? 'рядки' : 'рядків'} таблиці з неповними даними: №{skippedRows.slice(0, 20).join(', №')}{skippedRows.length > 20 ? '…' : ''}
+                   </p>
+                 )}
                  <div className="flex items-center justify-between mb-2 gap-2">
                    <span className="w-[4.5rem]" aria-hidden="true" />
                    <h2 className="text-lg font-semibold text-center flex-1">Детальні Транзакції за Період</h2>

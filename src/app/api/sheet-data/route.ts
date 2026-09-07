@@ -68,7 +68,9 @@ export async function GET() {
 
     // Обробка транзакцій
     const rawTransactions = response.data.valueRanges[0]?.values || [];
-    const transactions = rawTransactions.map(row => ({
+    // row = номер рядка в Sheets (A2 = 2), щоб фронт міг назвати пропущені рядки
+    const transactions = rawTransactions.map((row, index) => ({
+      row: index + 2,
       date: row[0] || null,
       amount: parseFloat(String(row[1]).replace(/,/g, '.').replace(/\s/g, '')) || 0, // Покращене перетворення суми
       type: row[2] || '',
@@ -77,7 +79,7 @@ export async function GET() {
       description: row[5] || '',
       counterparty: row[6] || '', // Опціональне поле контрагента
       project: row[7] || '', // Опціональне поле проекту
-    })).filter(t => t.date); // Відкидаємо рядки без дати
+    })).filter((t, index) => rawTransactions[index].some(cell => String(cell ?? '').trim())); // Відкидаємо лише повністю порожні рядки; без дати — лишаємо, фронт їх порахує як пропущені
 
     // Обробка рахунків
     const rawAccounts = response.data.valueRanges[1]?.values || [];
