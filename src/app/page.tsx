@@ -235,6 +235,10 @@ const TransactionsPage: React.FC = () => {
     const setSortColumn = useCallback((value: string) => updateFilters({ sortColumn: value }), [updateFilters]);
     const setSortDirection = useCallback((value: 'asc' | 'desc') => updateFilters({ sortDirection: value }), [updateFilters]);
 
+    // Скидання лише вибірок (рахунки/категорії/контрагенти/проєкти/тип); дати й стан панелей не чіпаємо
+    const hasActiveFilters = selectedAccounts.length > 0 || selectedCategories.length > 0 || selectedCounterparties.length > 0 || selectedProjects.length > 0 || selectedType !== 'Всі';
+    const resetSelectionFilters = useCallback(() => updateFilters({ selectedAccounts: [], selectedCategories: [], selectedCounterparties: [], selectedProjects: [], selectedType: 'Всі' }), [updateFilters]);
+
     // Стан для згортання фільтрів на мобільній версії (не зберігається)
     const [expandedFilters, setExpandedFilters] = useState<{[key: string]: boolean}>({
         accounts: false,
@@ -768,7 +772,19 @@ const TransactionsPage: React.FC = () => {
                   onClick={() => setIsFiltersOpen(!isFiltersOpen)}
               >
                   <span>Фільтри</span>
-                  <span className="text-gray-400 text-sm">{isFiltersOpen ? '▲' : '▼'}</span>
+                  <span className="flex items-center gap-4">
+                      {hasActiveFilters && (
+                          <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); resetSelectionFilters(); }}
+                              className="text-sm font-medium text-[#8884D8] hover:underline"
+                              title="Прибрати всі обрані рахунки, категорії, контрагентів, проєкти й тип"
+                          >
+                              Скинути
+                          </button>
+                      )}
+                      <span className="text-gray-400 text-sm">{isFiltersOpen ? '▲' : '▼'}</span>
+                  </span>
               </h2>
               {isFiltersOpen && (
                   <div className="p-4 pt-0 space-y-4">
