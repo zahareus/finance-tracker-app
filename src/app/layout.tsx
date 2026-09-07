@@ -6,6 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import './globals.css';
+import { SheetDataProvider, useSheetData } from '@/hooks/useSheetData';
 
 // --- Типи даних ---
 interface Transaction { date: string | null; amount: number; type: string; account: string; category: string; description: string;}
@@ -34,31 +35,22 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  return (
+    <SheetDataProvider>
+      <AppShell>{children}</AppShell>
+    </SheetDataProvider>
+  );
+}
+
+// Шапка + main; винесено, щоб мати доступ до контексту даних
+function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { data, isLoading: headerIsLoading, error: headerError, refresh } = useSheetData();
 
-  // --- Стан для даних хедера ---
-  const [headerAllTransactions, setHeaderAllTransactions] = useState<Transaction[]>([]);
-  const [headerAccounts, setHeaderAccounts] = useState<string[]>([]);
-  const [headerIsLoading, setHeaderIsLoading] = useState<boolean>(true);
-  const [headerError, setHeaderError] = useState<string | null>(null);
+  useEffect(() => { document.title = 'Місцеві гроші: фінансова звітність'; }, []);
 
-  // --- Завантаження даних для хедера ---
-  useEffect(() => {
-    document.title = 'Місцеві гроші: фінансова звітність';
-    const fetchHeaderData = async () => {
-       setHeaderIsLoading(true); setHeaderError(null);
-       try {
-         const response = await fetch('/api/sheet-data');
-         if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
-         const data = await response.json();
-         if (!Array.isArray(data.transactions) || !Array.isArray(data.accounts)) { throw new Error("Invalid data structure for header."); }
-         setHeaderAllTransactions(Array.isArray(data.transactions) ? data.transactions : []);
-         setHeaderAccounts(Array.isArray(data.accounts) ? data.accounts.flat().map(String).filter(Boolean) : []);
-       } catch (err) { console.error("Failed to fetch header data:", err); setHeaderError(err instanceof Error ? err.message : 'Unknown error'); }
-       finally { setHeaderIsLoading(false); }
-    };
-    fetchHeaderData();
-  }, []);
+  const headerAllTransactions: Transaction[] = useMemo(() => Array.isArray(data?.transactions) ? data.transactions : [], [data]);
+  const headerAccounts: string[] = useMemo(() => Array.isArray(data?.accounts) ? data.accounts.flat().map(String).filter(Boolean) : [], [data]);
 
   // --- Розрахунок Показників для Хедера ---
   const headerMetrics = useMemo(() => {
@@ -143,6 +135,14 @@ export default function RootLayout({
                            <span className="text-xs md:text-sm font-medium text-gray-500">Ранвей: </span>
                            <span className="text-base md:text-lg font-semibold text-[#8884D8]">{headerMetrics.runwayMonths === null ? 'N/A' : headerMetrics.runwayMonths === Infinity ? '∞' : headerMetrics.runwayMonths.toFixed(1)} міс.</span>
                        </div>
+                       <button
+                           type="button"
+                           onClick={refresh}
+                           className="text-xs md:text-sm font-medium text-[#8884D8] hover:text-[#6c63b8] hover:underline"
+                           title="Перечитати дані з Google Таблиці"
+                       >
+                           Оновити
+                       </button>
                        {/* Посилання на Джерело (показується в рядку на мобільних) */}
                        <div className="md:hidden">
                           <a href="https://docs.google.com/spreadsheets/d/1jl54qnar1R0nDdAIxJF6uN4eMPXacOfqasNAuwm8BNk/edit" target="_blank" rel="noopener noreferrer"

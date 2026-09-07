@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePersistedFilters } from '@/hooks/usePersistedState';
+import { useSheetData } from '@/hooks/useSheetData';
 
 // --- Типи даних ---
 interface Transaction {
@@ -111,8 +112,7 @@ const ProjectsPage: React.FC = () => {
     // --- Стан даних (не зберігається) ---
     const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
     const [projectsWithBonuses, setProjectsWithBonuses] = useState<ProjectWithBonuses[]>([]);
-    const [isLoading, setIsLoading] = useState<boolean>(true);
-    const [error, setError] = useState<string | null>(null);
+    const { data, isLoading, error } = useSheetData();
 
     // --- Збережені фільтри (зберігаються в localStorage) ---
     const [filters, updateFilters] = usePersistedFilters<ProjectsPersistedFilters>(
@@ -134,12 +134,8 @@ const ProjectsPage: React.FC = () => {
 
     // --- Завантаження даних ---
     useEffect(() => {
-        const fetchData = async () => {
-           setIsLoading(true); setError(null);
-           try {
-             const response = await fetch('/api/sheet-data');
-             if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
-             const data = await response.json();
+        if (!data) return;
+        try {
 
              const cleanedTransactions = data.transactions.map((tx: any) => ({
                date: typeof tx.date === 'string' ? tx.date.trim() : null,
@@ -178,14 +174,8 @@ const ProjectsPage: React.FC = () => {
                  setSelectedProject(projectsData[0].name);
                }
              }
-           } catch (err) {
-             setError(err instanceof Error ? err.message : 'An unknown error occurred.');
-             console.error("Failed to fetch data:", err);
-           }
-           finally { setIsLoading(false); }
-        };
-        fetchData();
-     }, [filters.selectedProject, setSelectedProject]);
+        } catch (err) { console.error("Failed to process sheet data:", err); }
+     }, [data, filters.selectedProject, setSelectedProject]);
 
     // Обробник сортування таблиці
     const handleSort = useCallback((column: string) => {

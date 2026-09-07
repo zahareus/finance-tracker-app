@@ -5,6 +5,7 @@ import {
     ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
 } from 'recharts';
 import { usePersistedFilters } from '@/hooks/usePersistedState';
+import { useSheetData } from '@/hooks/useSheetData';
 
 // --- Типи даних ---
 interface Transaction {
@@ -96,8 +97,7 @@ const EarnPage: React.FC = () => {
     // --- Стан даних (не зберігається) ---
     const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
     const [categories, setCategories] = useState<CategoryInfo[]>([]);
-    const [isLoading, setIsLoading] = useState<boolean>(true);
-    const [error, setError] = useState<string | null>(null);
+    const { data, isLoading, error } = useSheetData();
 
     // Початкові дати
     const defaultDates = useMemo(() => getDefaultEarnDates(), []);
@@ -145,12 +145,8 @@ const EarnPage: React.FC = () => {
 
     // --- Завантаження даних ---
     useEffect(() => {
-        const fetchData = async () => {
-           setIsLoading(true); setError(null);
-           try {
-             const response = await fetch('/api/sheet-data');
-             if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
-             const data = await response.json();
+        if (!data) return;
+        try {
 
              const cleanedTransactions = data.transactions.map((tx: any) => ({
                date: typeof tx.date === 'string' ? tx.date.trim() : null,
@@ -189,14 +185,8 @@ const EarnPage: React.FC = () => {
                  setSelectedCategories(validCategories);
                }
              }
-           } catch (err) {
-             setError(err instanceof Error ? err.message : 'An unknown error occurred.');
-             console.error("Failed to fetch data:", err);
-           }
-           finally { setIsLoading(false); }
-        };
-        fetchData();
-     }, [filters.selectedCategories, setSelectedCategories]);
+        } catch (err) { console.error("Failed to process sheet data:", err); }
+     }, [data, filters.selectedCategories, setSelectedCategories]);
 
     // --- Генерація років та місяців ---
     const availableYearsAndMonths = useMemo(() => {

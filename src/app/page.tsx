@@ -6,6 +6,7 @@ import {
     PieChart, Pie, Cell
 } from 'recharts';
 import { usePersistedFilters } from '@/hooks/usePersistedState';
+import { useSheetData } from '@/hooks/useSheetData';
 
 // --- Типи даних ---
 interface Transaction {
@@ -162,8 +163,7 @@ const TransactionsPage: React.FC = () => {
     const [categories, setCategories] = useState<CategoryInfo[]>([]);
     const [counterparties, setCounterparties] = useState<string[]>([]);
     const [projects, setProjects] = useState<string[]>([]);
-    const [isLoading, setIsLoading] = useState<boolean>(true);
-    const [error, setError] = useState<string | null>(null);
+    const { data, isLoading, error } = useSheetData();
 
     // Початкові дати
     const defaultDates = useMemo(() => getDefaultDates(), []);
@@ -254,24 +254,16 @@ const TransactionsPage: React.FC = () => {
     // --- Завантаження даних ---
     // Повний useEffect
     useEffect(() => {
-        const fetchData = async () => {
-           setIsLoading(true); setError(null);
-           try {
-             const response = await fetch('/api/sheet-data');
-             if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
-             const data = await response.json();
-             if (!Array.isArray(data.transactions) || !Array.isArray(data.accounts) || !Array.isArray(data.categories) || !Array.isArray(data.counterparties) || !Array.isArray(data.projects)) { throw new Error("Invalid data structure."); }
+        if (!data) return;
+        try {
              const cleanedTransactions = data.transactions.map((tx: any) => ({ date: typeof tx.date === 'string' ? tx.date.trim() : null, amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0, type: String(tx?.type || '').trim(), account: String(tx?.account || '').trim(), category: String(tx?.category || '').trim(), description: String(tx?.description || '').trim(), counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '', project: tx?.project ? String(tx.project).trim() : '', })).filter((tx: Transaction, index: number) => { const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount); if (!isValid) console.warn(`Workspace_DATA: Invalid transaction structure at raw index ${index}:`, data.transactions[index], 'Resulted in:', tx); return isValid; });
              const cleanedAccounts = data.accounts.flat().map((acc: any) => String(acc || '').trim()).filter(Boolean);
              const cleanedCategories = data.categories.map((cat: any) => ({ name: String(cat?.name || '').trim(), type: String(cat?.type || '').trim() })).filter((cat: CategoryInfo) => cat.name && (cat.type === 'Надходження' || cat.type === 'Витрата'));
              const cleanedCounterparties = data.counterparties.flat().map((cp: any) => String(cp || '').trim()).filter(Boolean);
              const cleanedProjects = data.projects.flat().map((proj: any) => String(proj || '').trim()).filter(Boolean);
              setAllTransactions(cleanedTransactions); setAccounts(cleanedAccounts); setCategories(cleanedCategories); setCounterparties(cleanedCounterparties); setProjects(cleanedProjects);
-           } catch (err) { setError(err instanceof Error ? err.message : 'An unknown error occurred.'); console.error("Failed to fetch data:", err); }
-           finally { setIsLoading(false); }
-        };
-        fetchData();
-     }, []);
+        } catch (err) { console.error("Failed to process sheet data:", err); }
+     }, [data]);
 
     // --- Обробники фільтрів ---
     // Повні обробники
