@@ -51,13 +51,12 @@ export function middleware(req: NextRequest) {
 // Конфігурація Middleware
 export const config = {
   /*
-   * Застосовуємо middleware до всіх шляхів, ОКРІМ:
-   * - /api/ (API маршрути)
+   * Застосовуємо middleware до всіх шляхів (включно з /api — інакше
+   * /api/sheet-data віддавав усю звітність без пароля), ОКРІМ:
    * - /_next/static (Статичні файли Next.js)
    * - /_next/image (Файли оптимізації зображень Next.js)
    * - /favicon.ico (Іконка сайту)
    * - /authrequired (Можливий спеціальний шлях, якщо потрібен)
-   * Якщо ти хочеш захистити ВСЕ, включаючи API, можеш використати: matcher: '/:path*'
    */
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|authrequired).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|authrequired).*)'],
 };
