@@ -591,6 +591,65 @@ const TransactionsPage: React.FC = () => {
         return { incomeData, expenseData };
     }, [processedData.filteredTransactions]);
 
+    // Транзакції у поточному порядку сортування — рендер таблиці і експорт беруть один список
+    const sortedTransactions = useMemo(() => {
+        return [...processedData.filteredTransactions].sort((a, b) => {
+            let comparison = 0;
+            switch (sortColumn) {
+                case 'date': {
+                    const dateA = parseDate(a.date);
+                    const dateB = parseDate(b.date);
+                    if (!dateA && !dateB) comparison = 0;
+                    else if (!dateA) comparison = 1;
+                    else if (!dateB) comparison = -1;
+                    else comparison = dateA.getTime() - dateB.getTime();
+                    break;
+                }
+                case 'amount': {
+                    const amountA = a.type === 'Витрата' ? -a.amount : a.amount;
+                    const amountB = b.type === 'Витрата' ? -b.amount : b.amount;
+                    comparison = amountA - amountB;
+                    break;
+                }
+                case 'description': comparison = (a.description || '').localeCompare(b.description || '', 'uk'); break;
+                case 'category': comparison = (a.category || '').localeCompare(b.category || '', 'uk'); break;
+                case 'account': comparison = (a.account || '').localeCompare(b.account || '', 'uk'); break;
+                case 'counterparty': comparison = (a.counterparty || '').localeCompare(b.counterparty || '', 'uk'); break;
+                case 'project': comparison = (a.project || '').localeCompare(b.project || '', 'uk'); break;
+                default: comparison = 0;
+            }
+            return sortDirection === 'asc' ? comparison : -comparison;
+        });
+    }, [processedData.filteredTransactions, sortColumn, sortDirection]);
+
+    // ponytail: XLS = HTML-таблиця з excel-mime, Excel/Numbers/Sheets її читають. Справжній xlsx (SheetJS) — тільки якщо знадобляться формули чи кілька аркушів.
+    const handleExportXls = useCallback(() => {
+        const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const headers = ['Дата', 'Сума', 'Тип', 'Опис', 'Категорія', 'Рахунок', 'Контрагент', 'Проект'];
+        const rows = sortedTransactions.map(tx => [
+            esc(tx.date),
+            tx.type === 'Витрата' ? -tx.amount : tx.amount,
+            esc(tx.type),
+            esc(tx.description),
+            esc(tx.category),
+            esc(tx.account),
+            esc(tx.counterparty || ''),
+            esc(tx.project || ''),
+        ]);
+        const html = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body><table border="1">`
+            + `<tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>`
+            + rows.map(r => `<tr>${r.map((c, i) => i === 1 ? `<td>${c}</td>` : `<td style="mso-number-format:'\\@'">${c}</td>`).join('')}</tr>`).join('')
+            + `</table></body></html>`;
+        const url = URL.createObjectURL(new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `transactions-${new Date().toISOString().slice(0, 10)}.xls`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }, [sortedTransactions]);
+
     // Кольори для pie charts
     const PIE_COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FFC658', '#FF7C7C', '#A4DE6C', '#D0ED57'];
 
@@ -1017,8 +1076,19 @@ const TransactionsPage: React.FC = () => {
           {isLoading && <p className="mt-4 text-center">Завантаження транзакцій...</p>}
           {!isLoading && !error && (
               <div className="overflow-x-auto mt-4">
-                 {/* Додано text-center */}
-                 <h2 className="text-lg font-semibold mb-2 text-center">Детальні Транзакції за Період</h2>
+                 <div className="flex items-center justify-between mb-2 gap-2">
+                   <span className="w-16" aria-hidden="true" />
+                   <h2 className="text-lg font-semibold text-center flex-1">Детальні Транзакції за Період</h2>
+                   <button
+                     type="button"
+                     onClick={handleExportXls}
+                     disabled={sortedTransactions.length === 0}
+                     className="w-16 shrink-0 px-3 py-1 text-sm font-medium rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                     title="Завантажити транзакції звіту у XLS"
+                   >
+                     XLS
+                   </button>
+                 </div>
                  <table className="min-w-full divide-y divide-gray-200">
                    <thead className="bg-gray-50">
                      <tr>
@@ -1078,44 +1148,7 @@ const TransactionsPage: React.FC = () => {
                      {processedData.filteredTransactions.length === 0 ? (
                        <tr> <td colSpan={7} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
                      ) : (
-                       [...processedData.filteredTransactions]
-                         .sort((a, b) => {
-                           let comparison = 0;
-                           switch (sortColumn) {
-                             case 'date':
-                               const dateA = parseDate(a.date);
-                               const dateB = parseDate(b.date);
-                               if (!dateA && !dateB) comparison = 0;
-                               else if (!dateA) comparison = 1;
-                               else if (!dateB) comparison = -1;
-                               else comparison = dateA.getTime() - dateB.getTime();
-                               break;
-                             case 'amount':
-                               const amountA = a.type === 'Витрата' ? -a.amount : a.amount;
-                               const amountB = b.type === 'Витрата' ? -b.amount : b.amount;
-                               comparison = amountA - amountB;
-                               break;
-                             case 'description':
-                               comparison = (a.description || '').localeCompare(b.description || '', 'uk');
-                               break;
-                             case 'category':
-                               comparison = (a.category || '').localeCompare(b.category || '', 'uk');
-                               break;
-                             case 'account':
-                               comparison = (a.account || '').localeCompare(b.account || '', 'uk');
-                               break;
-                             case 'counterparty':
-                               comparison = (a.counterparty || '').localeCompare(b.counterparty || '', 'uk');
-                               break;
-                             case 'project':
-                               comparison = (a.project || '').localeCompare(b.project || '', 'uk');
-                               break;
-                             default:
-                               comparison = 0;
-                           }
-                           return sortDirection === 'asc' ? comparison : -comparison;
-                         })
-                         .map((tx, index) => (
+                       sortedTransactions.map((tx, index) => (
                            <tr key={`${tx.date}-${index}-${tx.amount}`} className={`${tx.type === 'Витрата' ? 'bg-red-50 hover:bg-red-100' : 'bg-green-50 hover:bg-green-100'} transition-colors duration-150 ease-in-out`}>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{tx.date}</td>
                              <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-medium ${tx.type === 'Витрата' ? 'text-[#FF8042]' : 'text-[#00C49F]'}`}> {tx.type === 'Витрата' ? '-' : '+'} {formatNumber(tx.amount)} ₴ </td>
