@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Inter } from 'next/font/google';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation';
 import './globals.css';
 import { SheetDataProvider, useSheetData } from '@/hooks/useSheetData';
 import { signedAmount } from '@/lib/tx';
+import { usePersistedState } from '@/hooks/usePersistedState';
 
 // --- Типи даних ---
 interface Transaction { date: string | null; amount: number; type: string; account: string; category: string; description: string; link?: string | null; noTax?: boolean; }
@@ -50,6 +51,17 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { document.title = 'Місцеві гроші: фінансова звітність'; }, []);
 
+  // Налаштування ранвею: які витратні категорії НЕ входять у знаменник (зберігається в браузері)
+  const [runwayExcluded, setRunwayExcluded] = usePersistedState<string[]>('finance-tracker-runway-excluded', []);
+  const [runwayOpen, setRunwayOpen] = useState(false);
+  const runwayRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!runwayOpen) return;
+    const onDown = (e: MouseEvent) => { if (runwayRef.current && !runwayRef.current.contains(e.target as Node)) setRunwayOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [runwayOpen]);
+
   const headerAllTransactions: Transaction[] = useMemo(() => Array.isArray(data?.transactions) ? data.transactions : [], [data]);
   const headerAccounts: string[] = useMemo(() => Array.isArray(data?.accounts) ? data.accounts.flat().map(String).filter(Boolean) : [], [data]);
 
@@ -57,23 +69,27 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const headerMetrics = useMemo(() => {
         const today = new Date(); today.setUTCHours(23, 59, 59, 999);
         const currentBalanceDetails: BalanceDetails = {};
-        if (!Array.isArray(headerAccounts)) return { currentTotalBalance: 0, runwayMonths: null, balanceTooltipText: "..." };
+        if (!Array.isArray(headerAccounts)) return { currentTotalBalance: 0, runwayMonths: null, balanceTooltipText: "...", expenseCategories: [] as { category: string; sum: number; included: boolean }[], avgMonthlyExpense: 0, totalExpensesLast3Months: 0, includedExpenses: 0 };
         headerAccounts.forEach(acc => currentBalanceDetails[acc] = 0);
-        if (!Array.isArray(headerAllTransactions)) return { currentTotalBalance: 0, runwayMonths: null, balanceTooltipText: "..." };
+        if (!Array.isArray(headerAllTransactions)) return { currentTotalBalance: 0, runwayMonths: null, balanceTooltipText: "...", expenseCategories: [] as { category: string; sum: number; included: boolean }[], avgMonthlyExpense: 0, totalExpensesLast3Months: 0, includedExpenses: 0 };
         headerAllTransactions.forEach(tx => { const txDate = parseDate(tx.date); if (currentBalanceDetails.hasOwnProperty(tx.account) && txDate && txDate <= today) { const amount = typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : 0; currentBalanceDetails[tx.account] += signedAmount({ ...tx, amount }); }});
         const currentTotalBalance = Object.values(currentBalanceDetails).reduce((sum, bal) => sum + (typeof bal === 'number' ? bal : 0), 0);
         // Межі в UTC, як і дати транзакцій: локальний конструктор у Києві (+3) зсував вікно і губив останній день місяця
         const threeMonthsAgo = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 3, 1));
         const lastMonthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0, 23, 59, 59, 999));
-        let totalExpensesLast3Months = 0;
-        headerAllTransactions.forEach(tx => { const txDate = parseDate(tx.date); const amount = typeof tx.amount === 'number' ? tx.amount : 0; if (tx.type === 'Витрата' && txDate && txDate >= threeMonthsAgo && txDate <= lastMonthEnd) { totalExpensesLast3Months += amount; } });
-        const avgMonthlyExpense = totalExpensesLast3Months > 0 ? totalExpensesLast3Months / 3 : 0;
+        // Витрати за 3 повні місяці по категоріях — з них користувач вибирає, що входить у ранвей
+        const expenseByCategory: { [category: string]: number } = {};
+        headerAllTransactions.forEach(tx => { const txDate = parseDate(tx.date); const amount = typeof tx.amount === 'number' ? tx.amount : 0; if (tx.type === 'Витрата' && txDate && txDate >= threeMonthsAgo && txDate <= lastMonthEnd) { expenseByCategory[tx.category] = (expenseByCategory[tx.category] || 0) + amount; } });
+        const expenseCategories = Object.entries(expenseByCategory).map(([category, sum]) => ({ category, sum, included: !runwayExcluded.includes(category) })).sort((a, b) => b.sum - a.sum);
+        const totalExpensesLast3Months = expenseCategories.reduce((acc, c) => acc + c.sum, 0);
+        const includedExpenses = expenseCategories.filter(c => c.included).reduce((acc, c) => acc + c.sum, 0);
+        const avgMonthlyExpense = includedExpenses > 0 ? includedExpenses / 3 : 0;
         let runwayMonths: number | null | typeof Infinity = null;
         if (avgMonthlyExpense > 0 && currentTotalBalance > 0) { runwayMonths = currentTotalBalance / avgMonthlyExpense; }
         else if (currentTotalBalance >= 0 && avgMonthlyExpense <= 0) { runwayMonths = Infinity; }
         const balanceTooltipText = headerAccounts.map(acc => `${acc}: ${formatNumber(currentBalanceDetails[acc] || 0)} ₴`).join('\n');
-        return { currentTotalBalance, runwayMonths, balanceTooltipText };
-    }, [headerAllTransactions, headerAccounts]);
+        return { currentTotalBalance, runwayMonths, balanceTooltipText, expenseCategories, avgMonthlyExpense, totalExpensesLast3Months, includedExpenses };
+    }, [headerAllTransactions, headerAccounts, runwayExcluded]);
 
   return (
     <html lang="uk">
@@ -142,9 +158,31 @@ function AppShell({ children }: { children: React.ReactNode }) {
                            <span className="text-xs md:text-sm font-medium text-gray-500">Кошти: </span>
                            <span className="text-base md:text-lg font-semibold text-[#8884D8]">{formatNumber(headerMetrics.currentTotalBalance)} ₴</span>
                        </div>
-                       <div className="text-center md:text-left">
-                           <span className="text-xs md:text-sm font-medium text-gray-500">Ранвей: </span>
-                           <span className="text-base md:text-lg font-semibold text-[#8884D8]">{headerMetrics.runwayMonths === null ? 'N/A' : headerMetrics.runwayMonths === Infinity ? '∞' : headerMetrics.runwayMonths.toFixed(1)} міс.</span>
+                       <div className="text-center md:text-left relative" ref={runwayRef}>
+                           <button type="button" onClick={() => setRunwayOpen(o => !o)} className="hover:underline decoration-dotted underline-offset-4" title="Налаштувати, які витрати входять у ранвей">
+                               <span className="text-xs md:text-sm font-medium text-gray-500">Ранвей: </span>
+                               <span className="text-base md:text-lg font-semibold text-[#8884D8]">{headerMetrics.runwayMonths === null ? 'N/A' : headerMetrics.runwayMonths === Infinity ? '∞' : headerMetrics.runwayMonths.toFixed(1)} міс.</span>
+                               {runwayExcluded.length > 0 && <span className="ml-1 text-xs text-gray-400" title={`Без: ${runwayExcluded.join(', ')}`}>−{runwayExcluded.length}</span>}
+                           </button>
+                           {runwayOpen && (
+                               <div className="absolute left-1/2 -translate-x-1/2 md:left-auto md:right-0 md:translate-x-0 top-full mt-2 z-30 w-80 bg-white border border-gray-200 rounded shadow-lg p-3 text-left">
+                                   <div className="text-xs text-gray-500 mb-2">Ранвей = кошти / (обрані витрати за 3 повні місяці / 3). Зніми галочку, щоб виключити категорію.</div>
+                                   <ul className="max-h-72 overflow-y-auto divide-y divide-gray-100">
+                                       {headerMetrics.expenseCategories.map(c => (
+                                           <li key={c.category} className="flex items-center gap-2 py-1 text-sm">
+                                               <input type="checkbox" id={`rw-${c.category}`} checked={c.included} onChange={() => setRunwayExcluded(prev => c.included ? [...prev, c.category] : prev.filter(x => x !== c.category))} className="accent-[#8884D8]" />
+                                               <label htmlFor={`rw-${c.category}`} className={`flex-1 cursor-pointer ${c.included ? 'text-gray-800' : 'text-gray-400 line-through'}`}>{c.category}</label>
+                                               <span className={`font-mono text-xs ${c.included ? 'text-gray-600' : 'text-gray-400'}`}>{formatNumber(c.sum / 3)}/міс</span>
+                                           </li>
+                                       ))}
+                                   </ul>
+                                   <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-600 flex justify-between">
+                                       <span>У знаменнику: <strong>{formatNumber(headerMetrics.avgMonthlyExpense)}</strong>/міс</span>
+                                       <span className="text-gray-400">усього {formatNumber(headerMetrics.totalExpensesLast3Months / 3)}/міс</span>
+                                   </div>
+                                   {runwayExcluded.length > 0 && <button type="button" onClick={() => setRunwayExcluded([])} className="mt-2 text-xs text-[#8884D8] hover:underline">Включити все</button>}
+                               </div>
+                           )}
                        </div>
                        <button
                            type="button"
