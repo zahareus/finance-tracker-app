@@ -147,7 +147,7 @@ const ProjectsPage: React.FC = () => {
                counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '',
                project: tx?.project ? String(tx.project).trim() : '',
              })).filter((tx: Transaction) => {
-               return tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount);
+               return tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата' || tx.type === 'Переказ') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount);
              });
 
              setAllTransactions(cleanedTransactions);
@@ -535,7 +535,7 @@ const ProjectsPage: React.FC = () => {
                                               <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-medium ${tx.type === 'Витрата' ? 'text-[#FF8042]' : 'text-[#00C49F]'}`}>
                                                   {tx.type === 'Витрата' ? '-' : '+'} {formatNumber(tx.amount)} ₴
                                               </td>
-                                              <td className="px-4 py-2 text-sm text-gray-500 max-w-[200px] truncate">{tx.description}</td>
+                                              <td className="px-4 py-2 text-sm text-gray-500 min-w-[220px]">{tx.description}</td>
                                               <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.category}</td>
                                               <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.account}</td>
                                               <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.counterparty || '-'}</td>

@@ -7,11 +7,14 @@ import {
 } from 'recharts';
 import { usePersistedFilters } from '@/hooks/usePersistedState';
 import { useSheetData } from '@/hooks/useSheetData';
+import { TRANSFER, isOutgoing, isTransfer, signedAmount, pairStatus } from '@/lib/tx';
 
 // --- Типи даних ---
 interface Transaction {
   row?: number; // Номер рядка в Google Sheets
   id?: string | null; // Стабільний ID з колонки I (T0001…)
+  link?: string | null; // Колонка J — ID вихідного переказу (на вхідному)
+  noTax?: boolean; // Колонка K — «Без 11%»
   date: string | null;
   amount: number;
   type: string; // 'Надходження' або 'Витрата'
@@ -260,7 +263,7 @@ const TransactionsPage: React.FC = () => {
         if (!data) return;
         try {
              const skipped: string[] = [];
-             const cleanedTransactions = data.transactions.map((tx: any) => ({ row: typeof tx.row === 'number' ? tx.row : undefined, id: tx.id ? String(tx.id).trim() : null, date: typeof tx.date === 'string' ? tx.date.trim() : null, amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0, type: String(tx?.type || '').trim(), account: String(tx?.account || '').trim(), category: String(tx?.category || '').trim(), description: String(tx?.description || '').trim(), counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '', project: tx?.project ? String(tx.project).trim() : '', })).filter((tx: Transaction, index: number) => { const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount); if (!isValid) { skipped.push(tx.id || ('№' + (tx.row ?? index + 2))); console.warn(`Workspace_DATA: Invalid transaction structure at raw index ${index}:`, data.transactions[index], 'Resulted in:', tx); } return isValid; });
+             const cleanedTransactions = data.transactions.map((tx: any) => ({ row: typeof tx.row === 'number' ? tx.row : undefined, id: tx.id ? String(tx.id).trim() : null, link: tx.link ? String(tx.link).trim() : null, noTax: !!tx.noTax, date: typeof tx.date === 'string' ? tx.date.trim() : null, amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0, type: String(tx?.type || '').trim(), account: String(tx?.account || '').trim(), category: String(tx?.category || '').trim(), description: String(tx?.description || '').trim(), counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '', project: tx?.project ? String(tx.project).trim() : '', })).filter((tx: Transaction, index: number) => { const isValid = tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата' || tx.type === TRANSFER) && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount); if (!isValid) { skipped.push(tx.id || ('№' + (tx.row ?? index + 2))); console.warn(`Workspace_DATA: Invalid transaction structure at raw index ${index}:`, data.transactions[index], 'Resulted in:', tx); } return isValid; });
              setSkippedRows(skipped);
              const cleanedAccounts = data.accounts.flat().map((acc: any) => String(acc || '').trim()).filter(Boolean);
              const cleanedCategories = data.categories.map((cat: any) => ({ name: String(cat?.name || '').trim(), type: String(cat?.type || '').trim() })).filter((cat: CategoryInfo) => cat.name && (cat.type === 'Надходження' || cat.type === 'Витрата'));
@@ -444,7 +447,7 @@ const TransactionsPage: React.FC = () => {
             const accountMatches = accountsToConsider.includes(tx.account);
             if (txDate && accountMatches && (!startFilterDate || txDate < startFilterDate)) {
                  const amount = typeof tx.amount === 'number' ? tx.amount : 0;
-                 balanceDetailsAtStart[tx.account] = (balanceDetailsAtStart[tx.account] || 0) + (tx.type === 'Надходження' ? amount : -amount);
+                 balanceDetailsAtStart[tx.account] = (balanceDetailsAtStart[tx.account] || 0) + signedAmount({ ...tx, amount });
             }
         });
 
@@ -495,7 +498,7 @@ const TransactionsPage: React.FC = () => {
                 const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`;
                 if (monthlyActivityMap[monthYear]) {
                     const monthEntry = monthlyActivityMap[monthYear];
-                    const category = tx.category; const account = tx.account; const amount = tx.amount; const amountChange = (tx.type === 'Надходження' ? amount : -amount);
+                    const category = tx.category; const account = tx.account; const amount = tx.amount; const amountChange = signedAmount(tx);
                     if (tx.type === 'Надходження') { monthEntry.income += amount; monthEntry.incomeDetails[category] = (monthEntry.incomeDetails[category] || 0) + amount; }
                     else if (tx.type === 'Витрата') { monthEntry.expense += amount; monthEntry.expenseDetails[category] = (monthEntry.expenseDetails[category] || 0) + amount; }
                     if (accountsToConsider.includes(account)) { monthEntry.balanceChangeDetails[account] = (monthEntry.balanceChangeDetails[account] || 0) + amountChange; }
@@ -607,8 +610,8 @@ const TransactionsPage: React.FC = () => {
                     break;
                 }
                 case 'amount': {
-                    const amountA = a.type === 'Витрата' ? -a.amount : a.amount;
-                    const amountB = b.type === 'Витрата' ? -b.amount : b.amount;
+                    const amountA = signedAmount(a);
+                    const amountB = signedAmount(b);
                     comparison = amountA - amountB;
                     break;
                 }
@@ -623,6 +626,23 @@ const TransactionsPage: React.FC = () => {
         });
     }, [processedData.filteredTransactions, sortColumn, sortDirection]);
 
+    // Пари переказів по всій таблиці: вихідний → привʼязані вхідні (за колонкою J)
+    const pairs = useMemo(() => {
+        const byId = new Map<string, Transaction>();
+        allTransactions.forEach(tx => { if (tx.id) byId.set(tx.id, tx); });
+        const incomingByOut = new Map<string, Transaction[]>();
+        const broken: string[] = [];
+        allTransactions.forEach(tx => {
+            if (!tx.link) return;
+            const target = byId.get(tx.link);
+            // Ціль звʼязку мусить бути вихідним переказом без власного звʼязку — це відсікає цикли, ланцюжки і самопосилання
+            if (!target || !isOutgoing(target) || target.link || !isTransfer(tx) || isOutgoing(tx)) { broken.push(tx.id || '?'); return; }
+            incomingByOut.set(tx.link, (incomingByOut.get(tx.link) || []).concat(tx));
+        });
+        const unpaired = allTransactions.filter(tx => isOutgoing(tx) && tx.id && !incomingByOut.has(tx.id)).map(tx => tx.id as string);
+        return { incomingByOut, broken, unpaired };
+    }, [allTransactions]);
+
     // Справжній xlsx: OnlyOffice/Numbers відкривають HTML-таблицю з excel-mime як документ, не як таблицю
     const handleExportXls = useCallback(async () => {
         const writeXlsxFile = (await import('write-excel-file/browser')).default;
@@ -630,13 +650,15 @@ const TransactionsPage: React.FC = () => {
         const columns = [
             { header: header('ID'), width: 8, cell: (tx: Transaction) => ({ type: String, value: tx.id || '' }) },
             { header: header('Дата'), width: 12, cell: (tx: Transaction) => ({ type: String, value: tx.date || '' }) },
-            { header: header('Сума'), width: 14, cell: (tx: Transaction) => ({ type: Number, format: '#,##0.00', value: tx.type === 'Витрата' ? -tx.amount : tx.amount }) },
+            { header: header('Сума'), width: 14, cell: (tx: Transaction) => ({ type: Number, format: '#,##0.00', value: signedAmount(tx) }) },
             { header: header('Тип'), width: 14, cell: (tx: Transaction) => ({ type: String, value: tx.type || '' }) },
             { header: header('Опис'), width: 40, cell: (tx: Transaction) => ({ type: String, value: tx.description || '' }) },
             { header: header('Категорія'), width: 18, cell: (tx: Transaction) => ({ type: String, value: tx.category || '' }) },
             { header: header('Рахунок'), width: 14, cell: (tx: Transaction) => ({ type: String, value: tx.account || '' }) },
             { header: header('Контрагент'), width: 20, cell: (tx: Transaction) => ({ type: String, value: tx.counterparty || '' }) },
             { header: header('Проект'), width: 18, cell: (tx: Transaction) => ({ type: String, value: tx.project || '' }) },
+            { header: header('Звʼязок'), width: 9, cell: (tx: Transaction) => ({ type: String, value: tx.link || '' }) },
+            { header: header('Без 11%'), width: 8, cell: (tx: Transaction) => ({ type: String, value: tx.noTax ? 'так' : '' }) },
         ];
         await writeXlsxFile(sortedTransactions, { columns, stickyRowsCount: 1 })
             .toFile(`transactions-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -1080,6 +1102,12 @@ const TransactionsPage: React.FC = () => {
           {isLoading && <p className="mt-4 text-center">Завантаження транзакцій...</p>}
           {!isLoading && !error && (
               <div className="overflow-x-auto mt-4">
+                 {(pairs.unpaired.length > 0 || pairs.broken.length > 0) && (
+                   <p className="mb-2 text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+                     {pairs.unpaired.length > 0 && (<span title={pairs.unpaired.join(', ')}>Непарних переказів: <strong>{pairs.unpaired.length}</strong> — вихідні без привʼязаного вхідного ({pairs.unpaired.slice(0, 8).join(', ')}{pairs.unpaired.length > 8 ? '…' : ''}). </span>)}
+                     {pairs.broken.length > 0 && (<span className="text-red-700" title={pairs.broken.join(', ')}>Битих звʼязків: <strong>{pairs.broken.length}</strong> — звʼязок веде не на вихідний переказ ({pairs.broken.slice(0, 8).join(', ')}{pairs.broken.length > 8 ? '…' : ''}).</span>)}
+                   </p>
+                 )}
                  {skippedRows.length > 0 && (
                    <p className="mb-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2" title="Рядок без дати, рахунку, категорії або з типом не «Надходження»/«Витрата» у звіт не потрапляє">
                      Пропущено {skippedRows.length} {skippedRows.length === 1 ? 'рядок' : skippedRows.length < 5 ? 'рядки' : 'рядків'} таблиці з неповними даними: {skippedRows.slice(0, 20).join(', ')}{skippedRows.length > 20 ? '…' : ''}
@@ -1158,18 +1186,45 @@ const TransactionsPage: React.FC = () => {
                      {processedData.filteredTransactions.length === 0 ? (
                        <tr> <td colSpan={8} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
                      ) : (
-                       sortedTransactions.map((tx, index) => (
-                           <tr key={`${tx.date}-${index}-${tx.amount}`} className={`${tx.type === 'Витрата' ? 'bg-red-50 hover:bg-red-100' : 'bg-green-50 hover:bg-green-100'} transition-colors duration-150 ease-in-out`}>
-                             <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-400 font-mono">{tx.id || ''}</td>
+                       sortedTransactions.map((tx, index) => {
+                           const signed = signedAmount(tx);
+                           const rowBg = isTransfer(tx) ? 'bg-indigo-50 hover:bg-indigo-100' : tx.type === 'Витрата' ? 'bg-red-50 hover:bg-red-100' : 'bg-green-50 hover:bg-green-100';
+                           const amtColor = isTransfer(tx) ? 'text-indigo-700' : tx.type === 'Витрата' ? 'text-[#FF8042]' : 'text-[#00C49F]';
+                           const linked = tx.id && isOutgoing(tx) ? (pairs.incomingByOut.get(tx.id) || []) : [];
+                           const inSum = linked.reduce((sum, i) => sum + i.amount, 0);
+                           const status = linked.length ? pairStatus(tx.amount, inSum) : null;
+                           return (
+                           <React.Fragment key={`${tx.id || tx.date}-${index}`}>
+                           <tr className={`${rowBg} transition-colors duration-150 ease-in-out`}>
+                             <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-400 font-mono">{tx.id || ''}{tx.link && <span className="block text-indigo-500" title="Привʼязано до вихідного переказу">↩ {tx.link}</span>}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{tx.date}</td>
-                             <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-medium ${tx.type === 'Витрата' ? 'text-[#FF8042]' : 'text-[#00C49F]'}`}> {tx.type === 'Витрата' ? '-' : '+'} {formatNumber(tx.amount)} ₴ </td>
-                             <td className="px-4 py-2 text-sm text-gray-500 max-w-[200px] truncate">{tx.description}</td>
+                             <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-medium ${amtColor}`}> {signed < 0 ? '-' : '+'} {formatNumber(tx.amount)} ₴{tx.noTax && <span className="ml-1 text-xs text-gray-400" title="Без 11%">∅</span>} </td>
+                             <td className="px-4 py-2 text-sm text-gray-500 min-w-[220px]">{tx.description}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.category}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.account}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.counterparty || '-'}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.project || '-'}</td>
                            </tr>
-                         ))
+                           {isOutgoing(tx) && (
+                             <tr className="bg-indigo-50/40">
+                               <td></td>
+                               <td colSpan={7} className="px-4 pb-2 pt-0 text-xs text-gray-600">
+                                 {linked.length === 0 ? (
+                                   <span className="text-gray-400">↳ ще не повернувся — непарний переказ</span>
+                                 ) : (
+                                   <span>
+                                     {linked.map(i => (<span key={i.id || i.date} className="mr-3">↳ <span className="font-mono">{i.id}</span> {i.date} {i.account} +{formatNumber(i.amount)}</span>))}
+                                     <span className={status === 'ok' ? 'text-green-700' : 'text-amber-700 font-medium'}>
+                                       різниця {formatNumber(tx.amount - inSum)} ₴ {status === 'ok' ? '✓' : '⚠ не 0 і не 11%'}
+                                     </span>
+                                   </span>
+                                 )}
+                               </td>
+                             </tr>
+                           )}
+                           </React.Fragment>
+                           );
+                         })
                      )}
                      {/* Підсумкові рядки */}
                      {processedData.filteredTransactions.length > 0 && (

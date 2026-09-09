@@ -158,7 +158,7 @@ const EarnPage: React.FC = () => {
                counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '',
                project: tx?.project ? String(tx.project).trim() : '',
              })).filter((tx: Transaction) => {
-               return tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount);
+               return tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата' || tx.type === 'Переказ') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount);
              });
 
              setAllTransactions(cleanedTransactions);
@@ -167,6 +167,13 @@ const EarnPage: React.FC = () => {
              const cleanedCategories = data.categories
                  .map((cat: any) => ({ name: String(cat?.name || '').trim(), type: String(cat?.type || '').trim() }))
                  .filter((cat: CategoryInfo) => cat.name && cat.type === 'Надходження' && !EXCLUDED_CATEGORIES.includes(cat.name));
+             // Категорії, що в довіднику мають інший тип, але зустрічаються на реальних надходженнях
+             // («Гранти через посередника» без звʼязку = дохід) — теж показуємо
+             cleanedTransactions.forEach((tx: Transaction) => {
+                 if (tx.type === 'Надходження' && !EXCLUDED_CATEGORIES.includes(tx.category) && !cleanedCategories.some((c: CategoryInfo) => c.name === tx.category)) {
+                     cleanedCategories.push({ name: tx.category, type: 'Надходження' });
+                 }
+             });
 
              setCategories(cleanedCategories);
 
@@ -630,7 +637,7 @@ const EarnPage: React.FC = () => {
                            <tr key={`${tx.date}-${index}-${tx.amount}`} className="bg-green-50 hover:bg-green-100 transition-colors duration-150 ease-in-out">
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{tx.date}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-[#00C49F]">+ {formatNumber(tx.amount)} ₴</td>
-                             <td className="px-4 py-2 text-sm text-gray-500 max-w-[200px] truncate">{tx.description}</td>
+                             <td className="px-4 py-2 text-sm text-gray-500 min-w-[220px]">{tx.description}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.category}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.account}</td>
                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.counterparty || '-'}</td>

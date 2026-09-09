@@ -7,9 +7,10 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import './globals.css';
 import { SheetDataProvider, useSheetData } from '@/hooks/useSheetData';
+import { signedAmount } from '@/lib/tx';
 
 // --- Типи даних ---
-interface Transaction { date: string | null; amount: number; type: string; account: string; category: string; description: string;}
+interface Transaction { date: string | null; amount: number; type: string; account: string; category: string; description: string; link?: string | null; noTax?: boolean; }
 interface BalanceDetails { [account: string]: number; }
 
 // --- Хелпери ---
@@ -59,7 +60,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         if (!Array.isArray(headerAccounts)) return { currentTotalBalance: 0, runwayMonths: null, balanceTooltipText: "..." };
         headerAccounts.forEach(acc => currentBalanceDetails[acc] = 0);
         if (!Array.isArray(headerAllTransactions)) return { currentTotalBalance: 0, runwayMonths: null, balanceTooltipText: "..." };
-        headerAllTransactions.forEach(tx => { const txDate = parseDate(tx.date); if (currentBalanceDetails.hasOwnProperty(tx.account) && txDate && txDate <= today) { const amount = typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : 0; currentBalanceDetails[tx.account] += (tx.type === 'Надходження' ? amount : -amount); }});
+        headerAllTransactions.forEach(tx => { const txDate = parseDate(tx.date); if (currentBalanceDetails.hasOwnProperty(tx.account) && txDate && txDate <= today) { const amount = typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : 0; currentBalanceDetails[tx.account] += signedAmount({ ...tx, amount }); }});
         const currentTotalBalance = Object.values(currentBalanceDetails).reduce((sum, bal) => sum + (typeof bal === 'number' ? bal : 0), 0);
         // Межі в UTC, як і дати транзакцій: локальний конструктор у Києві (+3) зсував вікно і губив останній день місяця
         const threeMonthsAgo = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 3, 1));
@@ -117,6 +118,16 @@ function AppShell({ children }: { children: React.ReactNode }) {
                     }`}
                   >
                     Проекти
+                  </Link>
+                  <Link
+                    href="/fop"
+                    className={`px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                      pathname === '/fop'
+                        ? 'bg-[#8884D8] text-white'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    }`}
+                  >
+                    ФОП
                   </Link>
                 </nav>
              </div>

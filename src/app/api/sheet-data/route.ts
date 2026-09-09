@@ -49,7 +49,7 @@ export async function GET() {
     const sheets = google.sheets({ version: 'v4', auth });
 
     const ranges = [
-      'Transactions!A2:I',
+      'Transactions!A2:K',
       'Accounts!A2:A',
       'Categories!A2:B',
       'Agents!A2:A',
@@ -80,6 +80,8 @@ export async function GET() {
       description: row[5] || '',
       counterparty: row[6] || '', // Опціональне поле контрагента
       project: row[7] || '', // Опціональне поле проекту
+      link: row[9] ? String(row[9]).trim() : null, // Колонка J — ID вихідного переказу, до якого привʼязаний цей вхідний
+      noTax: String(row[10] ?? '').trim().toUpperCase() === 'TRUE', // Колонка K — прапорець «Без 11%»
     })).filter((t, index) => rawTransactions[index].some(cell => String(cell ?? '').trim())); // Відкидаємо лише повністю порожні рядки; без дати — лишаємо, фронт їх порахує як пропущені
 
     // Обробка рахунків
