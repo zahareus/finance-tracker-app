@@ -1,5 +1,7 @@
 'use client';
 
+import { parseDate, VALID_TYPES, signedAmount } from '@/lib/tx';
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePersistedFilters } from '@/hooks/usePersistedState';
 import { useSheetData } from '@/hooks/useSheetData';
@@ -48,34 +50,6 @@ const getProjectStatusColor = (status: string): string => {
     }
 };
 
-const parseDate = (dateString: string | null): Date | null => {
-    if (!dateString || typeof dateString !== 'string') return null;
-    try {
-        let parts = dateString.split('-');
-        if (parts.length === 3 && parts[0].length === 4) {
-            const year = parseInt(parts[0], 10);
-            const month = parseInt(parts[1], 10);
-            const day = parseInt(parts[2], 10);
-            if (!isNaN(year) && !isNaN(month) && !isNaN(day) && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-               const date = new Date(Date.UTC(year, month - 1, day));
-               if (!isNaN(date.getTime())) return date;
-            }
-        }
-        parts = dateString.split('.');
-        if (parts.length === 3 && parts[2].length === 4) {
-            const day = parseInt(parts[0], 10);
-            const month = parseInt(parts[1], 10);
-            const year = parseInt(parts[2], 10);
-             if (!isNaN(year) && !isNaN(month) && !isNaN(day) && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-                 const date = new Date(Date.UTC(year, month - 1, day));
-                 if (!isNaN(date.getTime())) return date;
-             }
-        }
-    } catch (e) {
-        console.error("Error parsing date string:", dateString, e);
-    }
-    return null;
-};
 
 // Компонент для тултіпа з розрахунком
 const TooltipWithCalculation: React.FC<{
@@ -147,7 +121,7 @@ const ProjectsPage: React.FC = () => {
                counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '',
                project: tx?.project ? String(tx.project).trim() : '',
              })).filter((tx: Transaction) => {
-               return tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата' || tx.type === 'Переказ') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount);
+               return tx.date && VALID_TYPES.includes(tx.type) && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount);
              });
 
              setAllTransactions(cleanedTransactions);
@@ -282,7 +256,7 @@ const ProjectsPage: React.FC = () => {
         }
 
         return {
-            taxes: `Податки = Надходження × 11%\n= ${formatNumber(totalIncome)} × 0.11\n= ${formatNumber(taxes)} ₴`,
+            taxes: `Податки й комісії посередників — орієнтовно 11% від усього, що надійшло на проєкт\n= Надходження × 11%\n= ${formatNumber(totalIncome)} × 0.11\n= ${formatNumber(taxes)} ₴`,
             bonusFromSum: `Бонус з суми = Надходження × ${bonusFromSumPercent}%\n= ${formatNumber(totalIncome)} × ${bonusFromSumPercent / 100}\n= ${formatNumber(bonusFromSum)} ₴`,
             bonusFromBalance: `База = Надходження - Видатки - Податки - Бонус з суми\n= ${formatNumber(totalIncome)} - ${formatNumber(totalExpenses)} - ${formatNumber(taxes)} - ${formatNumber(bonusFromSum)}\n= ${formatNumber(baseForBalanceBonus)} ₴\n\nБонус з балансу = База × ${bonusFromBalancePercent}%\n= ${formatNumber(baseForBalanceBonus)} × ${bonusFromBalancePercent / 100}\n= ${formatNumber(bonusFromBalance)} ₴`,
             totalBonuses: bonusFromSum > 0 && bonusFromBalance > 0
@@ -370,7 +344,7 @@ const ProjectsPage: React.FC = () => {
                           <div className="text-center p-3 bg-yellow-50 rounded-lg">
                               <p className="text-xs sm:text-sm text-gray-600 mb-1">
                                   <TooltipWithCalculation calculation={calculations.taxes}>
-                                      <span>Податки (11%)</span>
+                                      <span>Податки та комісії посередників (11%)</span>
                                   </TooltipWithCalculation>
                               </p>
                               <p className="text-lg sm:text-xl font-bold text-yellow-600">
@@ -505,8 +479,8 @@ const ProjectsPage: React.FC = () => {
                                                   else comparison = dateA.getTime() - dateB.getTime();
                                                   break;
                                               case 'amount':
-                                                  const amountA = a.type === 'Витрата' ? -a.amount : a.amount;
-                                                  const amountB = b.type === 'Витрата' ? -b.amount : b.amount;
+                                                  const amountA = signedAmount(a);
+                                                  const amountB = signedAmount(b);
                                                   comparison = amountA - amountB;
                                                   break;
                                               case 'description':

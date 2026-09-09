@@ -7,7 +7,7 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import './globals.css';
 import { SheetDataProvider, useSheetData } from '@/hooks/useSheetData';
-import { signedAmount } from '@/lib/tx';
+import { signedAmount, parseDate, RUNWAY_EXCLUDED_DEFAULT } from '@/lib/tx';
 import { usePersistedState } from '@/hooks/usePersistedState';
 
 // --- Типи даних ---
@@ -18,16 +18,6 @@ interface BalanceDetails { [account: string]: number; }
 const formatNumber = (num: number): string => {
     if (typeof num !== 'number' || isNaN(num)) { return '0,00'; }
     return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
-const parseDate = (dateString: string | null): Date | null => {
-    if (!dateString || typeof dateString !== 'string') return null;
-    try {
-        let parts = dateString.split('-');
-        if (parts.length === 3) { const date = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2])); if (!isNaN(date.getTime())) return date; }
-        parts = dateString.split('.');
-        if (parts.length === 3) { const date = new Date(Date.UTC(+parts[2], +parts[1] - 1, +parts[0])); if (!isNaN(date.getTime())) return date; }
-    } catch (e) { console.error("Error parsing date:", dateString, e); }
-    return null;
 };
 
 const inter = Inter({ subsets: ['latin'] });
@@ -52,7 +42,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => { document.title = 'Місцеві гроші: фінансова звітність'; }, []);
 
   // Налаштування ранвею: які витратні категорії НЕ входять у знаменник (зберігається в браузері)
-  const [runwayExcluded, setRunwayExcluded] = usePersistedState<string[]>('finance-tracker-runway-excluded', []);
+  const [runwayExcluded, setRunwayExcluded] = usePersistedState<string[]>('finance-tracker-runway-excluded', RUNWAY_EXCLUDED_DEFAULT);
   const [runwayOpen, setRunwayOpen] = useState(false);
   const runwayRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -67,11 +57,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   // --- Розрахунок Показників для Хедера ---
   const headerMetrics = useMemo(() => {
-        const today = new Date(); today.setUTCHours(23, 59, 59, 999);
+        const now = new Date(); const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)); // «сьогодні» за локальним календарем, межа в UTC як і дати транзакцій
         const currentBalanceDetails: BalanceDetails = {};
-        if (!Array.isArray(headerAccounts)) return { currentTotalBalance: 0, runwayMonths: null, balanceTooltipText: "...", expenseCategories: [] as { category: string; sum: number; included: boolean }[], avgMonthlyExpense: 0, totalExpensesLast3Months: 0, includedExpenses: 0 };
+        if (!Array.isArray(headerAccounts)) return { currentTotalBalance: 0, runwayMonths: null, balanceTooltipText: "...", expenseCategories: [] as { category: string; sum: number; included: boolean }[], avgMonthlyExpense: 0, totalExpensesLast3Months: 0, includedExpenses: 0, monthsDivisor: 3 };
         headerAccounts.forEach(acc => currentBalanceDetails[acc] = 0);
-        if (!Array.isArray(headerAllTransactions)) return { currentTotalBalance: 0, runwayMonths: null, balanceTooltipText: "...", expenseCategories: [] as { category: string; sum: number; included: boolean }[], avgMonthlyExpense: 0, totalExpensesLast3Months: 0, includedExpenses: 0 };
+        if (!Array.isArray(headerAllTransactions)) return { currentTotalBalance: 0, runwayMonths: null, balanceTooltipText: "...", expenseCategories: [] as { category: string; sum: number; included: boolean }[], avgMonthlyExpense: 0, totalExpensesLast3Months: 0, includedExpenses: 0, monthsDivisor: 3 };
         headerAllTransactions.forEach(tx => { const txDate = parseDate(tx.date); if (currentBalanceDetails.hasOwnProperty(tx.account) && txDate && txDate <= today) { const amount = typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : 0; currentBalanceDetails[tx.account] += signedAmount({ ...tx, amount }); }});
         const currentTotalBalance = Object.values(currentBalanceDetails).reduce((sum, bal) => sum + (typeof bal === 'number' ? bal : 0), 0);
         // Межі в UTC, як і дати транзакцій: локальний конструктор у Києві (+3) зсував вікно і губив останній день місяця
@@ -79,16 +69,18 @@ function AppShell({ children }: { children: React.ReactNode }) {
         const lastMonthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0, 23, 59, 59, 999));
         // Витрати за 3 повні місяці по категоріях — з них користувач вибирає, що входить у ранвей
         const expenseByCategory: { [category: string]: number } = {};
-        headerAllTransactions.forEach(tx => { const txDate = parseDate(tx.date); const amount = typeof tx.amount === 'number' ? tx.amount : 0; if (tx.type === 'Витрата' && txDate && txDate >= threeMonthsAgo && txDate <= lastMonthEnd) { expenseByCategory[tx.category] = (expenseByCategory[tx.category] || 0) + amount; } });
+        const monthsWithData = new Set<string>();
+        headerAllTransactions.forEach(tx => { const txDate = parseDate(tx.date); const amount = typeof tx.amount === 'number' ? tx.amount : 0; if (tx.type === 'Витрата' && txDate && txDate >= threeMonthsAgo && txDate <= lastMonthEnd) { expenseByCategory[tx.category] = (expenseByCategory[tx.category] || 0) + amount; monthsWithData.add(`${txDate.getUTCFullYear()}-${txDate.getUTCMonth()}`); } });
+        const monthsDivisor = Math.max(1, Math.min(3, monthsWithData.size)); // менше трьох місяців даних — ділимо на скільки є
         const expenseCategories = Object.entries(expenseByCategory).map(([category, sum]) => ({ category, sum, included: !runwayExcluded.includes(category) })).sort((a, b) => b.sum - a.sum);
         const totalExpensesLast3Months = expenseCategories.reduce((acc, c) => acc + c.sum, 0);
         const includedExpenses = expenseCategories.filter(c => c.included).reduce((acc, c) => acc + c.sum, 0);
-        const avgMonthlyExpense = includedExpenses > 0 ? includedExpenses / 3 : 0;
+        const avgMonthlyExpense = includedExpenses > 0 ? includedExpenses / monthsDivisor : 0;
         let runwayMonths: number | null | typeof Infinity = null;
         if (avgMonthlyExpense > 0 && currentTotalBalance > 0) { runwayMonths = currentTotalBalance / avgMonthlyExpense; }
         else if (currentTotalBalance >= 0 && avgMonthlyExpense <= 0) { runwayMonths = Infinity; }
         const balanceTooltipText = headerAccounts.map(acc => `${acc}: ${formatNumber(currentBalanceDetails[acc] || 0)} ₴`).join('\n');
-        return { currentTotalBalance, runwayMonths, balanceTooltipText, expenseCategories, avgMonthlyExpense, totalExpensesLast3Months, includedExpenses };
+        return { currentTotalBalance, runwayMonths, balanceTooltipText, expenseCategories, avgMonthlyExpense, totalExpensesLast3Months, includedExpenses, monthsDivisor };
     }, [headerAllTransactions, headerAccounts, runwayExcluded]);
 
   return (
@@ -172,13 +164,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
                                            <li key={c.category} className="flex items-center gap-2 py-1 text-sm">
                                                <input type="checkbox" id={`rw-${c.category}`} checked={c.included} onChange={() => setRunwayExcluded(prev => c.included ? [...prev, c.category] : prev.filter(x => x !== c.category))} className="accent-[#8884D8]" />
                                                <label htmlFor={`rw-${c.category}`} className={`flex-1 cursor-pointer ${c.included ? 'text-gray-800' : 'text-gray-400 line-through'}`}>{c.category}</label>
-                                               <span className={`font-mono text-xs ${c.included ? 'text-gray-600' : 'text-gray-400'}`}>{formatNumber(c.sum / 3)}/міс</span>
+                                               <span className={`font-mono text-xs ${c.included ? 'text-gray-600' : 'text-gray-400'}`}>{formatNumber(c.sum / headerMetrics.monthsDivisor)}/міс</span>
                                            </li>
                                        ))}
                                    </ul>
                                    <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-600 flex justify-between">
                                        <span>У знаменнику: <strong>{formatNumber(headerMetrics.avgMonthlyExpense)}</strong>/міс</span>
-                                       <span className="text-gray-400">усього {formatNumber(headerMetrics.totalExpensesLast3Months / 3)}/міс</span>
+                                       <span className="text-gray-400">усього {formatNumber(headerMetrics.totalExpensesLast3Months / headerMetrics.monthsDivisor)}/міс</span>
                                    </div>
                                    {runwayExcluded.length > 0 && <button type="button" onClick={() => setRunwayExcluded([])} className="mt-2 text-xs text-[#8884D8] hover:underline">Включити все</button>}
                                </div>

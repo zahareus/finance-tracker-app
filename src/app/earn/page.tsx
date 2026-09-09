@@ -1,5 +1,7 @@
 'use client';
 
+import { parseDate, VALID_TYPES } from '@/lib/tx';
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
@@ -41,34 +43,6 @@ const formatNumber = (num: number): string => {
     return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-const parseDate = (dateString: string | null): Date | null => {
-    if (!dateString || typeof dateString !== 'string') return null;
-    try {
-        let parts = dateString.split('-');
-        if (parts.length === 3 && parts[0].length === 4) {
-            const year = parseInt(parts[0], 10);
-            const month = parseInt(parts[1], 10);
-            const day = parseInt(parts[2], 10);
-            if (!isNaN(year) && !isNaN(month) && !isNaN(day) && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-               const date = new Date(Date.UTC(year, month - 1, day));
-               if (!isNaN(date.getTime())) return date;
-            }
-        }
-        parts = dateString.split('.');
-        if (parts.length === 3 && parts[2].length === 4) {
-            const day = parseInt(parts[0], 10);
-            const month = parseInt(parts[1], 10);
-            const year = parseInt(parts[2], 10);
-             if (!isNaN(year) && !isNaN(month) && !isNaN(day) && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-                 const date = new Date(Date.UTC(year, month - 1, day));
-                 if (!isNaN(date.getTime())) return date;
-             }
-        }
-    } catch (e) {
-        console.error("Error parsing date string:", dateString, e);
-    }
-    return null;
-};
 
 const formatDateForInput = (date: Date): string => {
     if (!(date instanceof Date) || isNaN(date.getTime())) {
@@ -158,7 +132,7 @@ const EarnPage: React.FC = () => {
                counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '',
                project: tx?.project ? String(tx.project).trim() : '',
              })).filter((tx: Transaction) => {
-               return tx.date && (tx.type === 'Надходження' || tx.type === 'Витрата' || tx.type === 'Переказ') && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount);
+               return tx.date && VALID_TYPES.includes(tx.type) && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount);
              });
 
              setAllTransactions(cleanedTransactions);
@@ -167,13 +141,6 @@ const EarnPage: React.FC = () => {
              const cleanedCategories = data.categories
                  .map((cat: any) => ({ name: String(cat?.name || '').trim(), type: String(cat?.type || '').trim() }))
                  .filter((cat: CategoryInfo) => cat.name && cat.type === 'Надходження' && !EXCLUDED_CATEGORIES.includes(cat.name));
-             // Категорії, що в довіднику мають інший тип, але зустрічаються на реальних надходженнях
-             // («Гранти через посередника» без звʼязку = дохід) — теж показуємо
-             cleanedTransactions.forEach((tx: Transaction) => {
-                 if (tx.type === 'Надходження' && !EXCLUDED_CATEGORIES.includes(tx.category) && !cleanedCategories.some((c: CategoryInfo) => c.name === tx.category)) {
-                     cleanedCategories.push({ name: tx.category, type: 'Надходження' });
-                 }
-             });
 
              setCategories(cleanedCategories);
 

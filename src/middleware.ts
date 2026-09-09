@@ -39,6 +39,11 @@ export function middleware(req: NextRequest) {
   }
 
   // Якщо заголовок відсутній або дані невірні - запитуємо автентифікацію
+  // Для /api — 401 без WWW-Authenticate: інакше Safari показує нативний діалог пароля поверх застосунку
+  // замість того, щоб застосунок показав свою «Помилка завантаження даних»
+  if (req.nextUrl.pathname.startsWith('/api/')) {
+    return new NextResponse('Authentication required.', { status: 401 });
+  }
   return new NextResponse('Authentication required.', {
     status: 401,
     headers: {

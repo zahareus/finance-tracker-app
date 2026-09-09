@@ -2,17 +2,11 @@
 
 import React, { useMemo, useState } from 'react';
 import { useSheetData } from '@/hooks/useSheetData';
-import { FOP_ACCOUNTS, FOP_FEE_CAT, TAX_RATE, isTaxBase } from '@/lib/tx';
+import { FOP_ACCOUNTS, FOP_FEE_CAT, TAX_RATE, isTaxBase, monthKey } from '@/lib/tx';
 
 interface Tx { id?: string | null; date: string | null; amount: number; type: string; account: string; category: string; description: string; link?: string | null; noTax?: boolean; }
 
 const formatNumber = (n: number) => n.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const monthKey = (date: string | null): string | null => {
-    if (!date) return null;
-    let p = date.split('-'); if (p.length === 3) return `${p[0]}-${p[1]}`;           // YYYY-MM-DD
-    p = date.split('.'); if (p.length === 3) return `${p[2]}-${p[1].padStart(2, '0')}`; // DD.MM.YYYY
-    return null;
-};
 const monthLabel = (key: string) => { const [y, m] = key.split('-'); return new Date(Date.UTC(+y, +m - 1, 1)).toLocaleString('uk-UA', { month: 'long', year: 'numeric', timeZone: 'UTC' }); };
 
 // Звірка 11% по ФОП-рахунках: база (усе, що зайшло без «Без 11%», крім «через посередника»),
