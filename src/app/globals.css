@@ -2,8 +2,5 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Тут можна додати власні глобальні стилі при потребі */
-body {
-  /* Наприклад, колір фону */
-  /* background-color: #f8f9fa; */ 
-}
+/* design-md: fintracker Журнал v1 */
+body { font-variant-numeric: tabular-nums; }

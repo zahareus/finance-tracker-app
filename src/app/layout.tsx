@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Inter } from 'next/font/google';
+import { Golos_Text, Unbounded } from 'next/font/google';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -20,7 +20,9 @@ const formatNumber = (num: number): string => {
     return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-const inter = Inter({ subsets: ['latin'] });
+// design-md: fintracker Журнал v1 — шрифти як CSS-змінні, класи font-sans / font-display беруть їх із tailwind.config.ts
+const golos = Golos_Text({ subsets: ['latin', 'cyrillic'], weight: ['400', '500', '600'], variable: '--font-golos' });
+const unbounded = Unbounded({ subsets: ['latin', 'cyrillic'], weight: ['500', '700'], variable: '--font-unbounded' });
 
 export default function RootLayout({
   children,
@@ -86,7 +88,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <html lang="uk">
       <head />
-      <body className={`${inter.className} bg-gray-100`}>
+      <body className={`${golos.variable} ${unbounded.variable} font-sans bg-paper text-ink`}>
         <header className="bg-white shadow sticky top-0 z-20">
           {/* Змінив h-16 на h-auto та додав min-h-16 для гнучкості */}
           <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-16 flex items-center justify-between gap-4 flex-wrap md:flex-nowrap"> {/* Додав flex-wrap для мобільних */}
