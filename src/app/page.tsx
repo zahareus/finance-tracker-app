@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-    ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+    ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     PieChart, Pie, Cell
 } from 'recharts';
-import { usePersistedFilters } from '@/hooks/usePersistedState';
+import { usePersistedFilters, usePersistedState } from '@/hooks/usePersistedState';
 import { useSheetData } from '@/hooks/useSheetData';
 import { VALID_TYPES, isOutgoing, isIncoming, isTransfer, signedAmount, pairStatus, parseDate } from '@/lib/tx';
+import { T, CHART_SERIES, chartTooltipStyle } from '@/lib/theme';
 
 // --- Типи даних ---
 interface Transaction {
@@ -50,10 +51,7 @@ interface PersistedFilters {
     selectedCounterparties: string[];
     selectedProjects: string[];
     selectedType: string;
-    isDateIntervalOpen: boolean;
-    isFiltersOpen: boolean;
     isChartDynamicsOpen: boolean;
-    isChartDistributionOpen: boolean;
     sortColumn: string;
     sortDirection: 'asc' | 'desc';
 }
@@ -85,6 +83,31 @@ const formatDateForInput = (date: Date): string => {
         return `${year}-${month}-${day}`;
     }
 };
+
+const formatDateShort = (dateString: string | null | undefined, withYear = true): string => {
+    const dt = parseDate(dateString);
+    if (!dt) return '—';
+    const day = String(dt.getUTCDate()).padStart(2, '0');
+    const month = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    return withYear ? `${day}.${month}.${dt.getUTCFullYear()}` : `${day}.${month}`;
+};
+
+const formatMoney = (value: number, showPlus = true): string => {
+    const sign = value < 0 ? '− ' : showPlus ? '+ ' : '';
+    return `${sign}${formatNumber(Math.abs(value))}`;
+};
+
+const ChevronDown = ({ className = '' }: { className?: string }) => (
+    <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M6 9l6 6 6-6" />
+    </svg>
+);
+
+const SortArrow = ({ direction }: { direction: 'asc' | 'desc' }) => (
+    <svg className={`inline ml-1 ${direction === 'asc' ? 'rotate-180' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <path d="M12 5v14M6 13l6 6 6-6" />
+    </svg>
+);
 // --- Кінець хелперів ---
 
 // Компонент для тултіпа з розрахунком
@@ -98,7 +121,7 @@ const TooltipWithCalculation: React.FC<{
         <div className="relative inline-flex items-center gap-1">
             {children}
             <button
-                className="text-gray-400 hover:text-gray-600 cursor-help text-xs font-bold"
+                className="text-ink-3 hover:text-ink-2 cursor-help text-xs font-bold"
                 onMouseEnter={() => setIsVisible(true)}
                 onMouseLeave={() => setIsVisible(false)}
                 onClick={() => setIsVisible(!isVisible)}
@@ -107,11 +130,8 @@ const TooltipWithCalculation: React.FC<{
                 (+)
             </button>
             {isVisible && (
-                <div className="absolute z-50 bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-pre-line min-w-[200px] max-w-[300px]">
+                <div className="absolute z-50 bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-ink text-white text-xs rounded-field whitespace-pre-line min-w-[200px] max-w-[300px]">
                     <div className="text-left">{calculation}</div>
-                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
-                        <div className="border-4 border-transparent border-t-gray-900"></div>
-                    </div>
                 </div>
             )}
         </div>
@@ -121,9 +141,8 @@ const TooltipWithCalculation: React.FC<{
 // Функція для отримання початкових дат (за межами компонента для стабільності)
 const getDefaultDates = () => {
     const today = new Date();
-    const hundredDaysAgo = new Date(today);
-    hundredDaysAgo.setDate(today.getDate() - 99);
-    return { start: formatDateForInput(hundredDaysAgo), end: formatDateForInput(today) };
+    const startOfYear = new Date(Date.UTC(today.getFullYear(), 0, 1));
+    return { start: formatDateForInput(startOfYear), end: formatDateForInput(today) };
 };
 
 const TransactionsPage: React.FC = () => {
@@ -141,7 +160,7 @@ const TransactionsPage: React.FC = () => {
 
     // --- Збережені фільтри (зберігаються в localStorage) ---
     const [filters, updateFilters] = usePersistedFilters<PersistedFilters>(
-        'finance-tracker-main-filters',
+        'finance-tracker-main-filters-v2',
         {
             startDate: defaultDates.start,
             endDate: defaultDates.end,
@@ -150,20 +169,19 @@ const TransactionsPage: React.FC = () => {
             selectedCounterparties: [],
             selectedProjects: [],
             selectedType: 'Всі',
-            isDateIntervalOpen: true,
-            isFiltersOpen: true,
             isChartDynamicsOpen: true,
-            isChartDistributionOpen: true,
             sortColumn: 'date',
             sortDirection: 'desc',
         }
     );
+    const [isFiltersPanelOpen, setIsFiltersPanelOpen] = usePersistedState('finance-tracker-filters-open-v2', false);
+    const [isChartDistributionOpen, setIsChartDistributionOpen] = usePersistedState('finance-tracker-pies-open-v2', false);
 
     // Деструктуруємо фільтри для зручності
     const {
         startDate, endDate, selectedAccounts, selectedCategories,
         selectedCounterparties, selectedProjects, selectedType,
-        isDateIntervalOpen, isFiltersOpen, isChartDynamicsOpen, isChartDistributionOpen,
+        isChartDynamicsOpen,
         sortColumn, sortDirection
     } = filters;
 
@@ -199,10 +217,7 @@ const TransactionsPage: React.FC = () => {
         }
     }, [updateFilters]);
     const setSelectedType = useCallback((value: string) => updateFilters({ selectedType: value }), [updateFilters]);
-    const setIsDateIntervalOpen = useCallback((value: boolean) => updateFilters({ isDateIntervalOpen: value }), [updateFilters]);
-    const setIsFiltersOpen = useCallback((value: boolean) => updateFilters({ isFiltersOpen: value }), [updateFilters]);
     const setIsChartDynamicsOpen = useCallback((value: boolean) => updateFilters({ isChartDynamicsOpen: value }), [updateFilters]);
-    const setIsChartDistributionOpen = useCallback((value: boolean) => updateFilters({ isChartDistributionOpen: value }), [updateFilters]);
     const setSortColumn = useCallback((value: string) => updateFilters({ sortColumn: value }), [updateFilters]);
     const setSortDirection = useCallback((value: 'asc' | 'desc') => updateFilters({ sortDirection: value }), [updateFilters]);
 
@@ -419,7 +434,7 @@ const TransactionsPage: React.FC = () => {
         // 2. Фільтруємо транзакції
         const filteredTransactionsForPeriod = allTransactions.filter(tx => {
             if (typeof tx.amount !== 'number' || isNaN(tx.amount)) return false;
-            const typeMatch = selectedType === 'Всі' || tx.type === selectedType;
+            const typeMatch = selectedType === 'Всі' || (selectedType === 'Перекази' ? isTransfer(tx) : tx.type === selectedType);
             if (!typeMatch) return false;
             const accountMatch = selectedAccounts.length === 0 || selectedAccounts.includes(tx.account);
             if (!accountMatch) return false;
@@ -565,6 +580,7 @@ const TransactionsPage: React.FC = () => {
         return [...processedData.filteredTransactions].sort((a, b) => {
             let comparison = 0;
             switch (sortColumn) {
+                case 'id': comparison = (a.id || '').localeCompare(b.id || '', 'uk'); break;
                 case 'date': {
                     const dateA = parseDate(a.date);
                     const dateB = parseDate(b.date);
@@ -580,6 +596,7 @@ const TransactionsPage: React.FC = () => {
                     comparison = amountA - amountB;
                     break;
                 }
+                case 'type': comparison = (a.type || '').localeCompare(b.type || '', 'uk'); break;
                 case 'description': comparison = (a.description || '').localeCompare(b.description || '', 'uk'); break;
                 case 'category': comparison = (a.category || '').localeCompare(b.category || '', 'uk'); break;
                 case 'account': comparison = (a.account || '').localeCompare(b.account || '', 'uk'); break;
@@ -649,9 +666,6 @@ const TransactionsPage: React.FC = () => {
             .toFile(`transactions-${new Date().toISOString().slice(0, 10)}.xlsx`);
     }, [sortedTransactions]);
 
-    // Кольори для pie charts
-    const PIE_COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FFC658', '#FF7C7C', '#A4DE6C', '#D0ED57'];
-
     // --- Компонент для Кастомної Підказки (Tooltip) ---
     // Повний CustomTooltip
     const CustomTooltip = ({ active, payload, label }: any) => {
@@ -659,620 +673,318 @@ const TransactionsPage: React.FC = () => {
             const currentMonthData = processedData.barChartData.find(d => d.name === label);
             if (!currentMonthData) return null;
             const renderDetails = (details: { [key: string]: number }, type: 'income' | 'expense' | 'balance') => {
-                 const colorClass = type === 'income' ? 'text-green-600' : type === 'expense' ? 'text-red-600' : 'text-blue-600';
+                 const colorClass = type === 'income' ? 'text-income' : type === 'expense' ? 'text-expense' : 'text-ink';
                  const accountsToConsider = selectedAccounts.length > 0 ? selectedAccounts : accounts;
                  let detailsToShow: [string, number][];
-                 if (type === 'balance') { const fullBalanceDetails: BalanceDetails = {}; accountsToConsider.forEach(acc => { fullBalanceDetails[acc] = details[acc] || 0; }); detailsToShow = Object.entries(fullBalanceDetails).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([,a],[,b]) => b - a); if (detailsToShow.length === 0) { if (accountsToConsider.length > 0) return <p key={accountsToConsider[0]} className={`text-xs ${colorClass}`}> - {accountsToConsider[0]}: {formatNumber(0)} ₴</p>; else return <p className="text-xs text-gray-500 italic">- немає рахунків -</p>; } }
-                 else { detailsToShow = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a); if(detailsToShow.length === 0) return <p className="text-xs text-gray-500 italic">- немає деталей -</p>; }
+                 if (type === 'balance') { const fullBalanceDetails: BalanceDetails = {}; accountsToConsider.forEach(acc => { fullBalanceDetails[acc] = details[acc] || 0; }); detailsToShow = Object.entries(fullBalanceDetails).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([,a],[,b]) => b - a); if (detailsToShow.length === 0) { if (accountsToConsider.length > 0) return <p key={accountsToConsider[0]} className={`text-xs ${colorClass}`}> - {accountsToConsider[0]}: {formatNumber(0)} ₴</p>; else return <p className="text-xs text-ink-3 italic">- немає рахунків -</p>; } }
+                 else { detailsToShow = Object.entries(details).filter(([, amount]) => Math.abs(amount) > 0.001).sort(([, a], [, b]) => b - a); if(detailsToShow.length === 0) return <p className="text-xs text-ink-3 italic">- немає деталей -</p>; }
                  return detailsToShow.map(([key, amount]) => ( <p key={key} className={`text-xs ${colorClass}`}> - {key}: {formatNumber(amount)} ₴</p> ));
             };
             const incomePayload = payload.find((p: any) => p.dataKey === 'income');
             const expensePayload = payload.find((p: any) => p.dataKey === 'expense');
             const balancePayload = payload.find((p: any) => p.dataKey === 'balance');
-            return ( <div className="bg-white p-3 shadow-lg border rounded text-sm opacity-95 max-w-xs z-50 relative"> <p className="font-bold mb-2 text-center">{label}</p> {processedData.shouldShowBalance && balancePayload && currentMonthData.balanceDetails && ( <> <p className="text-blue-600 font-semibold">Баланс (кінець міс.): {formatNumber(currentMonthData.balance)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.balanceDetails, 'balance')}</div> </> )} {incomePayload && currentMonthData.income !== 0 && currentMonthData.incomeDetails && ( <> <p className="text-green-600 font-semibold mt-1">Надходження: {formatNumber(currentMonthData.income)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.incomeDetails, 'income')}</div> </> )} {expensePayload && currentMonthData.expense !== 0 && currentMonthData.expenseDetails && ( <> <p className="text-red-600 font-semibold mt-1">Витрати: {formatNumber(currentMonthData.expense)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.expenseDetails, 'expense')}</div> </> )} </div> );
+            return ( <div className="bg-panel p-3 border border-line rounded-field text-sm max-w-xs z-50 relative"> <p className="font-semibold mb-2 text-center">{label}</p> {processedData.shouldShowBalance && balancePayload && currentMonthData.balanceDetails && ( <> <p className="text-ink font-semibold">Баланс (кінець міс.): {formatNumber(currentMonthData.balance)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.balanceDetails, 'balance')}</div> </> )} {incomePayload && currentMonthData.income !== 0 && currentMonthData.incomeDetails && ( <> <p className="text-income font-semibold mt-1">Надходження: {formatNumber(currentMonthData.income)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.incomeDetails, 'income')}</div> </> )} {expensePayload && currentMonthData.expense !== 0 && currentMonthData.expenseDetails && ( <> <p className="text-expense font-semibold mt-1">Витрати: {formatNumber(currentMonthData.expense)} ₴</p> <div className="pl-2 my-1">{renderDetails(currentMonthData.expenseDetails, 'expense')}</div> </> )} </div> );
         }
         return null;
     };
 
+    const activeFilterCount = [selectedAccounts.length, selectedCategories.length, selectedCounterparties.length, selectedProjects.length].filter(n => n > 0).length + (selectedType !== 'Всі' ? 1 : 0);
+    const periodLabel = `${formatDateShort(startDate, false)} – ${formatDateShort(endDate)}`;
+    const resetLabel = [selectedType !== 'Всі' ? selectedType : null, selectedAccounts.length ? `рахунки ${selectedAccounts.length}` : null, selectedCategories.length ? `категорії ${selectedCategories.length}` : null, selectedCounterparties.length ? `контрагенти ${selectedCounterparties.length}` : null, selectedProjects.length ? `проєкти ${selectedProjects.length}` : null].filter(Boolean).join(', ') || 'немає';
+    const showPairRows = selectedType === 'Всі' || selectedType === 'Перекази';
+    const transferWarningText = showPairRows ? [
+        pairs.unpaired.length > 0 ? `Непарних переказів: ${pairs.unpaired.length}` : null,
+        skippedRows.length > 0 ? `пропущено ${skippedRows.length} ${skippedRows.length === 1 ? 'рядок' : skippedRows.length < 5 ? 'рядки' : 'рядків'}` : null,
+    ].filter(Boolean).join(' · ') : '';
+    const typeOptions = ['Всі', 'Надходження', 'Витрата', 'Перекази'];
+    const columns = [
+        { key: 'id', label: 'ID', align: 'text-left' },
+        { key: 'date', label: 'Дата', align: 'text-left' },
+        { key: 'type', label: 'Тип', align: 'text-left' },
+        { key: 'amount', label: 'Сума', align: 'text-right' },
+        { key: 'description', label: 'Опис', align: 'text-left' },
+        { key: 'category', label: 'Категорія', align: 'text-left' },
+        { key: 'account', label: 'Рахунок', align: 'text-left' },
+        { key: 'counterparty', label: 'Контрагент', align: 'text-left' },
+        { key: 'project', label: 'Проєкт', align: 'text-left' },
+    ];
+    const typeClasses = (tx: Transaction) => isOutgoing(tx) ? 'bg-tout-soft text-tout' : isIncoming(tx) ? 'bg-tin-soft text-tin' : tx.type === 'Витрата' ? 'bg-expense-soft text-expense' : 'bg-income-soft text-income';
+    const amountClass = (tx: Transaction) => isOutgoing(tx) ? 'text-tout' : isIncoming(tx) ? 'text-tin' : tx.type === 'Витрата' ? 'text-expense' : 'text-income';
+    const displayType = (tx: Transaction) => isOutgoing(tx) ? 'Переказ вихідний' : isIncoming(tx) ? 'Переказ вхідний' : tx.type;
+    const renderCheckbox = (checked: boolean, onChange: () => void, label: string) => (
+        <input type="checkbox" aria-label={label} checked={checked} onChange={onChange} className="h-4 w-4 rounded-[5px] border-[1.5px] border-line bg-panel accent-ink" />
+    );
+    const filterList = (key: string, title: string, items: string[], selected: string[], onToggle: (item: string) => void, onToggleAll: () => void, empty: string) => {
+        const allSelected = items.length > 0 && items.every(item => selected.includes(item));
+        return (
+            <div className="flex-1 min-w-0">
+                <div className="flex justify-between items-center mb-1.5 cursor-pointer sm:cursor-default" onClick={() => toggleFilter(key)}>
+                    <span className="text-xs font-semibold flex items-center gap-1">{title}<ChevronDown className={`sm:hidden ${expandedFilters[key] ? 'rotate-180' : ''}`} /></span>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); onToggleAll(); }} className="text-xs text-ink-2 underline underline-offset-[3px] hover:text-ink">
+                        {allSelected ? 'Зняти всі' : 'Вибрати всі'}
+                    </button>
+                </div>
+                <div className={`rounded-[12px] border border-line bg-panel p-2 px-3 h-[168px] overflow-y-auto ${expandedFilters[key] ? 'block' : 'hidden'} sm:block`}>
+                    {isLoading ? <p className="text-xs text-ink-3 p-1">Завантаження...</p> : items.length > 0 ? items.map(item => (
+                        <label key={`${key}-${item}`} className={`flex items-center gap-2 py-1 text-[13px] hover:bg-mute -mx-1 px-1 rounded-field ${selected.includes(item) ? 'text-ink' : 'text-ink-2'}`}>
+                            <input type="checkbox" checked={selected.includes(item)} onChange={() => onToggle(item)} className="h-4 w-4 rounded-[5px] border-[1.5px] border-line bg-panel accent-ink" />
+                            <span className="truncate">{item}</span>
+                        </label>
+                    )) : <p className="text-xs text-ink-3 p-1">{empty}</p>}
+                </div>
+            </div>
+        );
+    };
 
     // --- РЕНДЕР КОМПОНЕНТА ---
     return (
-        <div>
-          {/* --- БЛОК ІНТЕРВАЛ ДАТ --- */}
-          <div className="mb-4 border rounded bg-white shadow">
-              <h2
-                  className="text-lg font-semibold p-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 select-none flex items-center justify-between"
-                  onClick={() => setIsDateIntervalOpen(!isDateIntervalOpen)}
-              >
-                  <span>Інтервал дат</span>
-                  <span className="text-gray-400 text-sm">{isDateIntervalOpen ? '▲' : '▼'}</span>
-              </h2>
-              {isDateIntervalOpen && (
-                  <div className="p-4 pt-0 space-y-4">
-                      {/* Верхній рядок: Початок та Кінець */}
-                      <div className="flex flex-col sm:flex-row gap-4">
-                          <div className='flex-1'>
-                              <label htmlFor="trans-startDate" className="block text-xs font-medium text-gray-600 mb-1">Початок</label>
-                              <input
-                                  id="trans-startDate"
-                                  type="date"
-                                  value={startDate}
-                                  onChange={(e) => {
-                                      setStartDate(e.target.value);
-                                      setSelectedMonthRange({ start: null, end: null });
-                                  }}
-                                  className="w-full p-1.5 sm:p-2 border border-gray-300 rounded text-xs sm:text-sm shadow-sm focus:ring-2 focus:ring-[#8884D8] focus:border-[#8884D8]"
-                              />
-                          </div>
-                          <div className='flex-1'>
-                              <label htmlFor="trans-endDate" className="block text-xs font-medium text-gray-600 mb-1">Кінець</label>
-                              <input
-                                  id="trans-endDate"
-                                  type="date"
-                                  value={endDate}
-                                  onChange={(e) => {
-                                      setEndDate(e.target.value);
-                                      setSelectedMonthRange({ start: null, end: null });
-                                  }}
-                                  className="w-full p-1.5 sm:p-2 border border-gray-300 rounded text-xs sm:text-sm shadow-sm focus:ring-2 focus:ring-[#8884D8] focus:border-[#8884D8]"
-                              />
-                          </div>
-                      </div>
-
-                      {/* Таймлайн років та місяців */}
-                      <div className="space-y-3">
-                          {availableYearsAndMonths.map(({ year, months }) => (
-                              <div key={year} className="space-y-2">
-                                  {/* Рядок року */}
-                                  <div className="flex items-center gap-3">
-                                      <button
-                                          onClick={() => handleYearClick(year)}
-                                          className={`text-sm font-bold px-3 py-1 rounded-lg transition-colors duration-150 ${
-                                              isYearFullyActive(year)
-                                                  ? 'bg-[#8884D8] text-white'
-                                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                          }`}
-                                      >
-                                          {year}
-                                      </button>
-                                      {/* Місяці - 12 на десктопі, 6 на мобільному */}
-                                      <div className="flex-1 grid grid-cols-6 md:grid-cols-12 gap-1">
-                                          {months.map((month) => {
-                                              const isActive = isMonthActive(year, month);
-                                              const monthKey = `${year}-${month}`;
-                                              const isSelecting = selectedMonthRange.start === monthKey;
-
-                                              return (
-                                                  <button
-                                                      key={month}
-                                                      onClick={() => handleMonthClick(year, month)}
-                                                      className={`
-                                                          w-full aspect-square rounded-full text-xs font-medium
-                                                          transition-all duration-150 flex items-center justify-center
-                                                          ${isActive
-                                                              ? 'bg-[#8884D8] text-white shadow-md'
-                                                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                                          }
-                                                          ${isSelecting ? 'ring-2 ring-[#00C49F] ring-offset-1' : ''}
-                                                      `}
-                                                      title={`${MONTH_NAMES_SHORT[month]} ${year}`}
-                                                  >
-                                                      {MONTH_NAMES_SHORT[month]}
-                                                  </button>
-                                              );
-                                          })}
-                                      </div>
-                                  </div>
-                              </div>
-                          ))}
-                      </div>
-                  </div>
-              )}
+        <div className="flex flex-col gap-4">
+          {/* design-md: fintracker Журнал v1 */}
+          {isLoading && !data && <p className="text-sm text-ink-2 text-center py-10">Завантаження...</p>}
+          {error && !data && <p className="text-danger text-sm text-center py-10">Помилка завантаження звіту: {error}</p>}
+          {data && (
+          <>
+          <div className="flex gap-2.5 items-center flex-wrap">
+              <button type="button" onClick={() => setIsFiltersPanelOpen(open => !open)} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full border border-line bg-panel text-[13px] hover:border-ink-3">
+                  <span className="text-ink-2">Період</span><span className="font-medium tabular-nums">{periodLabel}</span><ChevronDown />
+              </button>
+              <div className="inline-flex p-[3px] rounded-full border border-line bg-panel">
+                  {typeOptions.map(type => (
+                      <button key={type} type="button" onClick={() => setSelectedType(type)} className={`px-4 py-[7px] rounded-full text-[13px] font-medium ${selectedType === type ? 'bg-ink text-white' : 'text-ink-2 hover:text-ink'}`}>
+                          {type === 'Витрата' ? 'Витрати' : type}
+                      </button>
+                  ))}
+              </div>
+              <button type="button" onClick={() => setIsFiltersPanelOpen(open => !open)} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full border border-line bg-panel text-[13px] hover:border-ink-3" title="Фільтри збережені в цьому браузері — інша людина бачить інші цифри">
+                  <span className="text-ink-2">Фільтри</span><span className="font-medium">активних: {activeFilterCount}</span><ChevronDown />
+              </button>
+              <span className="flex-1" />
+              {hasActiveFilters && <button type="button" onClick={resetSelectionFilters} className="text-[13px] text-ink-2 underline underline-offset-[3px] hover:text-ink">Скинути</button>}
           </div>
 
-          {/* --- БЛОК ФІЛЬТРИ --- */}
-          <div className="mb-6 border rounded bg-white shadow">
-              <h2
-                  className="text-lg font-semibold p-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 select-none flex items-center justify-between"
-                  onClick={() => setIsFiltersOpen(!isFiltersOpen)}
-              >
-                  <span>Фільтри{hasActiveFilters && <span className="ml-2 align-middle text-xs font-medium px-2 py-0.5 rounded-full bg-[#8884D8] text-white" title="Фільтри збережені в цьому браузері — інша людина бачить інші цифри">активних: {[selectedAccounts.length, selectedCategories.length, selectedCounterparties.length, selectedProjects.length].filter(n => n > 0).length + (selectedType !== 'Всі' ? 1 : 0)}</span>}</span>
-                  <span className="flex items-center gap-4">
-                      {hasActiveFilters && (
-                          <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); resetSelectionFilters(); }}
-                              className="text-sm font-medium text-[#8884D8] hover:underline"
-                              title="Прибрати всі обрані рахунки, категорії, контрагентів, проєкти й тип"
-                          >
-                              Скинути
-                          </button>
-                      )}
-                      <span className="text-gray-400 text-sm">{isFiltersOpen ? '▲' : '▼'}</span>
-                  </span>
-              </h2>
-              {isFiltersOpen && (
-                  <div className="p-4 pt-0 space-y-4">
-                      {/* Тип транзакції */}
-                      <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Тип</label>
-                          <div className="flex rounded border border-gray-300 overflow-hidden shadow-sm">
-                              {(['Всі', 'Надходження', 'Витрата'] as const).map((type, index) => {
-                                  const getTypeColors = () => {
-                                      if (selectedType !== type) return 'bg-white text-gray-700 hover:bg-gray-100';
-                                      switch(type) {
-                                          case 'Всі': return 'bg-[#8884D8] text-white';
-                                          case 'Надходження': return 'bg-[#00C49F] text-white';
-                                          case 'Витрата': return 'bg-[#FF8042] text-white';
-                                      }
-                                  };
+          {isFiltersPanelOpen && (
+              <div className="bg-panel border border-line rounded-card px-5 py-[18px] flex flex-col gap-4">
+                  <div className="flex justify-between items-center">
+                      <span className="font-display text-[14px] font-semibold">Період і фільтри</span>
+                      <span className="text-xs text-ink-2">Збережено в цьому браузері</span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                      <div className="sm:flex-[0_0_200px]">
+                          <label htmlFor="trans-startDate" className="block text-xs text-ink-2 mb-1">Початок</label>
+                          <input id="trans-startDate" type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setSelectedMonthRange({ start: null, end: null }); }} className="w-full px-3 py-2 rounded-field border border-line bg-panel text-[13px] tabular-nums focus:border-ink focus:outline-none" />
+                      </div>
+                      <div className="sm:flex-[0_0_200px]">
+                          <label htmlFor="trans-endDate" className="block text-xs text-ink-2 mb-1">Кінець</label>
+                          <input id="trans-endDate" type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setSelectedMonthRange({ start: null, end: null }); }} className="w-full px-3 py-2 rounded-field border border-line bg-panel text-[13px] tabular-nums focus:border-ink focus:outline-none" />
+                      </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                      {availableYearsAndMonths.map(({ year, months }) => (
+                          <div key={year} className="flex gap-1.5 items-center flex-wrap">
+                              <button type="button" onClick={() => handleYearClick(year)} className={`h-[30px] px-3 rounded-full text-xs font-semibold border ${isYearFullyActive(year) ? 'bg-ink text-white border-ink' : 'bg-mute text-ink border-line hover:border-ink-3'}`}>
+                                  {year}
+                              </button>
+                              {months.map(month => {
+                                  const isActive = isMonthActive(year, month);
+                                  const isSelecting = selectedMonthRange.start === `${year}-${month}`;
                                   return (
-                                      <button
-                                          key={type}
-                                          onClick={() => setSelectedType(type)}
-                                          className={`flex-1 px-3 py-2 text-sm text-center transition-colors duration-150 ease-in-out ${getTypeColors()} ${index > 0 ? 'border-l border-gray-300' : ''}`}
-                                      >
-                                          {type}
+                                      <button key={`${year}-${month}`} type="button" onClick={() => handleMonthClick(year, month)} className={`h-[30px] px-3 rounded-full text-xs font-medium border ${isActive ? 'bg-ink text-white border-ink' : 'bg-transparent text-ink-2 border-line hover:border-ink-3'} ${isSelecting ? 'ring-2 ring-ink ring-offset-1' : ''}`}>
+                                          {MONTH_NAMES_SHORT[month]}
                                       </button>
                                   );
                               })}
                           </div>
-                      </div>
-
-                      {/* --- Рядок Фільтрів --- */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-start pt-2">
-                    {/* Колонка 1: Рахунки */}
-                    <div className="flex flex-col">
-                       <div
-                         className="flex justify-between items-center mb-1 flex-shrink-0 cursor-pointer sm:cursor-default"
-                         onClick={() => toggleFilter('accounts')}
-                       >
-                           <label className="block text-sm font-medium text-gray-700 flex items-center gap-1 cursor-pointer sm:cursor-default">
-                             Рахунки
-                             <span className="sm:hidden text-gray-400 text-xs">{expandedFilters.accounts ? '▲' : '▼'}</span>
-                           </label>
-                           <button onClick={(e) => { e.stopPropagation(); handleSelectAllAccounts(); }} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
-                               {accounts.length > 0 && selectedAccounts.length === accounts.length ? 'Зняти всі' : 'Вибрати всі'}
-                           </button>
-                       </div>
-                       <div className={`border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto lg:max-h-[200px] lg:h-[200px] ${expandedFilters.accounts ? 'block' : 'hidden'} sm:block`}>
-                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(accounts) && accounts.length > 0 ? accounts.map(acc => ( <div key={acc} className="flex items-center"> <input type="checkbox" id={`trans-acc-${acc}`} checked={selectedAccounts.includes(acc)} onChange={() => handleAccountChange(acc)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-acc-${acc}`} className={`text-xs select-none cursor-pointer ${selectedAccounts.includes(acc) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{acc}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає рахунків</p>}
-                       </div>
-                   </div>
-                   {/* Колонка 2: Категорії Надходжень */}
-                   <div className="flex flex-col">
-                        <div
-                          className='flex justify-between items-center mb-1 flex-shrink-0 cursor-pointer sm:cursor-default'
-                          onClick={() => toggleFilter('income')}
-                        >
-                            <label className="block text-sm font-medium text-gray-700 flex items-center gap-1 cursor-pointer sm:cursor-default">
-                              Надходження
-                              <span className="sm:hidden text-gray-400 text-xs">{expandedFilters.income ? '▲' : '▼'}</span>
-                            </label>
-                             <button onClick={(e) => { e.stopPropagation(); handleSelectAllIncomeCategories(); }} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
-                               {incomeCategories.length > 0 && incomeCategories.every(ic => selectedCategories.includes(ic)) ? 'Зняти всі' : 'Вибрати всі'}
-                             </button>
-                        </div>
-                        <div className={`border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto lg:max-h-[200px] lg:h-[200px] ${expandedFilters.income ? 'block' : 'hidden'} sm:block`}>
-                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && incomeCategories.length > 0 ? incomeCategories.map(catName => ( <div key={`inc-${catName}`} className="flex items-center"> <input type="checkbox" id={`trans-cat-inc-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cat-inc-${catName}`} className={`text-xs select-none cursor-pointer ${selectedCategories.includes(catName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{catName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій надходжень</p>}
-                        </div>
-                   </div>
-                   {/* Колонка 3: Категорії Витрат */}
-                   <div className="flex flex-col">
-                        <div
-                          className='flex justify-between items-center mb-1 flex-shrink-0 cursor-pointer sm:cursor-default'
-                          onClick={() => toggleFilter('expense')}
-                        >
-                            <label className="block text-sm font-medium text-gray-700 flex items-center gap-1 cursor-pointer sm:cursor-default">
-                              Витрати
-                              <span className="sm:hidden text-gray-400 text-xs">{expandedFilters.expense ? '▲' : '▼'}</span>
-                            </label>
-                             <button onClick={(e) => { e.stopPropagation(); handleSelectAllExpenseCategories(); }} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
-                               {expenseCategories.length > 0 && expenseCategories.every(ec => selectedCategories.includes(ec)) ? 'Зняти всі' : 'Вибрати всі'}
-                             </button>
-                        </div>
-                        <div className={`border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto lg:max-h-[200px] lg:h-[200px] ${expandedFilters.expense ? 'block' : 'hidden'} sm:block`}>
-                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(categories) && expenseCategories.length > 0 ? expenseCategories.map(catName => ( <div key={`exp-${catName}`} className="flex items-center"> <input type="checkbox" id={`trans-cat-exp-${catName}`} checked={selectedCategories.includes(catName)} onChange={() => handleCategoryChange(catName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cat-exp-${catName}`} className={`text-xs select-none cursor-pointer ${selectedCategories.includes(catName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{catName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає категорій витрат</p>}
-                        </div>
-                   </div>
-                   {/* Колонка 4: Контрагенти */}
-                   <div className="flex flex-col">
-                        <div
-                          className='flex justify-between items-center mb-1 flex-shrink-0 cursor-pointer sm:cursor-default'
-                          onClick={() => toggleFilter('counterparties')}
-                        >
-                            <label className="block text-sm font-medium text-gray-700 flex items-center gap-1 cursor-pointer sm:cursor-default">
-                              Контрагенти
-                              <span className="sm:hidden text-gray-400 text-xs">{expandedFilters.counterparties ? '▲' : '▼'}</span>
-                            </label>
-                             <button onClick={(e) => { e.stopPropagation(); handleSelectAllCounterparties(); }} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
-                               {counterparties.length > 0 && selectedCounterparties.length === counterparties.length ? 'Зняти всі' : 'Вибрати всі'}
-                             </button>
-                        </div>
-                        <div className={`border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto lg:max-h-[200px] lg:h-[200px] ${expandedFilters.counterparties ? 'block' : 'hidden'} sm:block`}>
-                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(counterparties) && counterparties.length > 0 ? counterparties.map(cpName => ( <div key={`cp-${cpName}`} className="flex items-center"> <input type="checkbox" id={`trans-cp-${cpName}`} checked={selectedCounterparties.includes(cpName)} onChange={() => handleCounterpartyChange(cpName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-cp-${cpName}`} className={`text-xs select-none cursor-pointer ${selectedCounterparties.includes(cpName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{cpName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає контрагентів</p>}
-                        </div>
-                   </div>
-                   {/* Колонка 5: Проекти */}
-                   <div className="flex flex-col">
-                        <div
-                          className='flex justify-between items-center mb-1 flex-shrink-0 cursor-pointer sm:cursor-default'
-                          onClick={() => toggleFilter('projects')}
-                        >
-                            <label className="block text-sm font-medium text-gray-700 flex items-center gap-1 cursor-pointer sm:cursor-default">
-                              Проекти
-                              <span className="sm:hidden text-gray-400 text-xs">{expandedFilters.projects ? '▲' : '▼'}</span>
-                            </label>
-                             <button onClick={(e) => { e.stopPropagation(); handleSelectAllProjects(); }} className="text-xs text-[#8884D8] hover:text-[#6c63b8] hover:underline">
-                               {projects.length > 0 && selectedProjects.length === projects.length ? 'Зняти всі' : 'Вибрати всі'}
-                             </button>
-                        </div>
-                        <div className={`border rounded p-2 bg-white space-y-1 shadow-sm overflow-y-auto lg:max-h-[200px] lg:h-[200px] ${expandedFilters.projects ? 'block' : 'hidden'} sm:block`}>
-                           {isLoading ? <p className="text-xs text-gray-400 p-1">Завантаження...</p> : Array.isArray(projects) && projects.length > 0 ? projects.map(projName => ( <div key={`proj-${projName}`} className="flex items-center"> <input type="checkbox" id={`trans-proj-${projName}`} checked={selectedProjects.includes(projName)} onChange={() => handleProjectChange(projName)} className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-1.5 focus:ring-blue-500 focus:ring-offset-0"/> <label htmlFor={`trans-proj-${projName}`} className={`text-xs select-none cursor-pointer ${selectedProjects.includes(projName) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{projName}</label> </div> )) : <p className="text-xs text-gray-400 p-1">Немає проектів</p>}
-                        </div>
-                   </div>
-                </div>
+                      ))}
                   </div>
-              )}
+                  <div className="flex flex-col sm:flex-row gap-3.5">
+                      {filterList('accounts', 'Рахунки', accounts, selectedAccounts, handleAccountChange, handleSelectAllAccounts, 'Немає рахунків')}
+                      {filterList('income', 'Надходження', incomeCategories, selectedCategories, handleCategoryChange, handleSelectAllIncomeCategories, 'Немає категорій надходжень')}
+                      {filterList('expense', 'Витрати', expenseCategories, selectedCategories, handleCategoryChange, handleSelectAllExpenseCategories, 'Немає категорій витрат')}
+                      {filterList('counterparties', 'Контрагенти', counterparties, selectedCounterparties, handleCounterpartyChange, handleSelectAllCounterparties, 'Немає контрагентів')}
+                      {filterList('projects', 'Проєкти', projects, selectedProjects, handleProjectChange, handleSelectAllProjects, 'Немає проєктів')}
+                  </div>
+              </div>
+          )}
+
+          <div className="flex flex-col divide-y divide-line rounded-card bg-panel border border-line px-3.5 sm:px-0 sm:grid sm:grid-cols-3 sm:gap-3 sm:divide-y-0 sm:bg-transparent sm:border-0">
+              <div className="flex justify-between items-baseline py-2 sm:block sm:rounded-card sm:px-[18px] sm:py-3.5 sm:bg-income-soft">
+                  <div className="text-xs text-ink-2">Надходження</div>
+                  <div className="text-base sm:text-[22px] font-semibold tabular-nums text-income"><TooltipWithCalculation calculation={summaryCalculations.income}><span>+ {formatNumber(totalSums.income)}</span></TooltipWithCalculation></div>
+              </div>
+              <div className="flex justify-between items-baseline py-2 sm:block sm:rounded-card sm:px-[18px] sm:py-3.5 sm:bg-expense-soft">
+                  <div className="text-xs text-ink-2">Витрати</div>
+                  <div className="text-base sm:text-[22px] font-semibold tabular-nums text-expense"><TooltipWithCalculation calculation={summaryCalculations.expense}><span>− {formatNumber(totalSums.expense)}</span></TooltipWithCalculation></div>
+              </div>
+              <div className="flex justify-between items-baseline py-2 sm:block sm:rounded-card sm:px-[18px] sm:py-3.5 sm:bg-panel sm:border sm:border-line">
+                  <div className="text-xs text-ink-2">Різниця за період</div>
+                  <div className={`text-base sm:text-[22px] font-semibold tabular-nums ${totalSums.balance < 0 ? 'text-tout' : 'text-ink'}`}><TooltipWithCalculation calculation={summaryCalculations.balance}><span>{formatMoney(totalSums.balance)}</span></TooltipWithCalculation></div>
+              </div>
           </div>
-          {/* --- Кінець ФІЛЬТРІВ --- */}
 
+          <div className="bg-panel border border-line rounded-card px-5 py-[18px]">
+              <button type="button" className="w-full flex justify-between items-center mb-2.5" onClick={() => setIsChartDynamicsOpen(!isChartDynamicsOpen)}>
+                  <span className="font-display text-sm sm:text-[15px] font-semibold">Динаміка за {parseDate(endDate)?.getUTCFullYear() || new Date().getFullYear()}</span>
+                  {!isChartDynamicsOpen && <span className="inline-flex items-center gap-1 text-[13px] text-ink-2">згорнуто <ChevronDown /></span>}
+              </button>
+              {isChartDynamicsOpen && processedData.barChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={processedData.barChartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={T.line} />
+                          <XAxis dataKey="name" tick={{ fill: T.ink2, fontSize: 11 }} />
+                          <YAxis tickFormatter={(value) => Math.round(value).toLocaleString('uk-UA')} tick={{ fill: T.ink2, fontSize: 11 }} width={62} />
+                          <Tooltip content={<CustomTooltip />} contentStyle={chartTooltipStyle} wrapperStyle={{ zIndex: 50 }} />
+                          <Bar dataKey="income" fill={T.income} name="Надходження" radius={[2, 2, 0, 0]} />
+                          <Bar dataKey="expense" fill={T.expense} name="Витрати" radius={[2, 2, 0, 0]} />
+                          {processedData.shouldShowBalance && <Bar dataKey="balance" fill={T.ink3} name="Баланс (кінець міс.)" radius={[2, 2, 0, 0]} />}
+                      </BarChart>
+                  </ResponsiveContainer>
+              ) : isChartDynamicsOpen ? <p className="text-center text-ink-2 py-10">Немає даних для відображення звіту за обраними фільтрами.</p> : null}
+          </div>
 
-          {/* --- Графік --- */}
-          {/* Повний JSX Графіка */}
-          {isLoading && <p className="mt-6 text-center">Завантаження звіту...</p>}
-          {error && <p className="mt-6 text-red-600 text-center">Помилка завантаження звіту: {error}</p>}
-          {!isLoading && !error && (
-               <div className="p-4 border rounded shadow bg-white mb-6">
-                   <h2
-                       className="text-lg font-semibold mb-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 select-none flex items-center justify-between"
-                       onClick={() => setIsChartDynamicsOpen(!isChartDynamicsOpen)}
-                   >
-                       <span>Динаміка за Період</span>
-                       <span className="text-gray-400 text-sm">{isChartDynamicsOpen ? '▲' : '▼'}</span>
-                   </h2>
-                   {isChartDynamicsOpen && processedData.barChartData.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={350}>
-                         <BarChart data={processedData.barChartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-                           <CartesianGrid strokeDasharray="3 3" />
-                           <XAxis dataKey="name" fontSize={12} />
-                           <YAxis tickFormatter={(value) => formatNumber(value)} fontSize={12} width={70}/>
-                           {/* **ПОВЕРНУЛИ КАСТОМНИЙ TOOLTIP** */}
-                           <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(206, 212, 218, 0.3)' }} wrapperStyle={{ zIndex: 50 }} />
-                           <Legend wrapperStyle={{fontSize: "12px"}}/>
-                           <Bar dataKey="income" fill="#00C49F" name="Надходження" radius={[4, 4, 0, 0]} />
-                           <Bar dataKey="expense" fill="#FF8042" name="Витрати" radius={[4, 4, 0, 0]} />
-                           {processedData.shouldShowBalance && <Bar dataKey="balance" fill="#8884D8" name="Баланс (кінець міс.)" radius={[4, 4, 0, 0]} />}
-                         </BarChart>
-                      </ResponsiveContainer>
-                   ) : isChartDynamicsOpen ? ( <p className="text-center text-gray-500 pt-10">Немає даних для відображення звіту за обраними фільтрами.</p> ) : null}
-
-                   {/* --- Блок із загальними сумами --- */}
-                   {isChartDynamicsOpen && processedData.barChartData.length > 0 && (
-                       <div className="mt-6 flex justify-center gap-8 flex-wrap">
-                           <div className="text-center">
-                               <p className="text-sm text-gray-600 mb-1">Надходження</p>
-                               <p className="text-2xl font-bold" style={{ color: '#00C49F' }}>
-                                   {formatNumber(totalSums.income)} ₴
-                               </p>
-                           </div>
-                           <div className="text-center">
-                               <p className="text-sm text-gray-600 mb-1">Витрати</p>
-                               <p className="text-2xl font-bold" style={{ color: '#FF8042' }}>
-                                   {formatNumber(totalSums.expense)} ₴
-                               </p>
-                           </div>
-                           <div className="text-center">
-                               <p className="text-sm text-gray-600 mb-1">Баланс</p>
-                               <p className="text-2xl font-bold" style={{ color: '#8884D8' }}>
-                                   {formatNumber(totalSums.balance)} ₴
-                               </p>
-                           </div>
-                       </div>
-                   )}
-              </div>
-          )}
-          {/* --- Кінець Графіка --- */}
-
-          {/* --- Графіки розподілу по категоріям --- */}
-          {!isLoading && !error && (
-              <div className="p-4 border rounded shadow bg-white mb-6">
-                  <h2
-                      className="text-lg font-semibold mb-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 select-none flex items-center justify-between"
-                      onClick={() => setIsChartDistributionOpen(!isChartDistributionOpen)}
-                  >
-                      <span>Розподіл по категоріям</span>
-                      <span className="text-gray-400 text-sm">{isChartDistributionOpen ? '▲' : '▼'}</span>
-                  </h2>
-                  {isChartDistributionOpen && (categoryDistribution.incomeData.length > 0 || categoryDistribution.expenseData.length > 0) ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Pie Chart для надходжень */}
-                      <div className="flex flex-col items-center">
-                          <h3 className="text-md font-medium mb-2" style={{ color: '#00C49F' }}>Надходження</h3>
-                          {categoryDistribution.incomeData.length > 0 ? (
-                              <>
-                                  <ResponsiveContainer width="100%" height={280}>
-                                      <PieChart>
-                                          <Pie
-                                              data={categoryDistribution.incomeData}
-                                              cx="50%"
-                                              cy="50%"
-                                              outerRadius={80}
-                                              fill="#00C49F"
-                                              dataKey="value"
-                                              label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                                              labelLine={true}
-                                          >
-                                              {categoryDistribution.incomeData.map((entry, index) => (
-                                                  <Cell key={`cell-income-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                                              ))}
-                                          </Pie>
-                                          <Tooltip
-                                              formatter={(value: number) => [`${formatNumber(value)} ₴`, 'Сума']}
-                                          />
-                                      </PieChart>
-                                  </ResponsiveContainer>
-                                  <div className="mt-2 text-xs text-gray-600 max-h-[120px] overflow-y-auto w-full">
-                                      {categoryDistribution.incomeData.map((item, index) => (
-                                          <div key={`legend-income-${index}`} className="flex items-center gap-2 mb-1">
-                                              <div
-                                                  className="w-3 h-3 rounded-sm flex-shrink-0"
-                                                  style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}
-                                              />
-                                              <span className="truncate">{item.name}</span>
-                                              <span className="ml-auto font-medium">{formatNumber(item.value)} ₴</span>
-                                          </div>
-                                      ))}
-                                  </div>
-                              </>
-                          ) : (
-                              <p className="text-gray-500 text-sm py-10">Немає надходжень за обраний період</p>
-                          )}
-                      </div>
-
-                      {/* Pie Chart для витрат */}
-                      <div className="flex flex-col items-center">
-                          <h3 className="text-md font-medium mb-2" style={{ color: '#FF8042' }}>Витрати</h3>
-                          {categoryDistribution.expenseData.length > 0 ? (
-                              <>
-                                  <ResponsiveContainer width="100%" height={280}>
-                                      <PieChart>
-                                          <Pie
-                                              data={categoryDistribution.expenseData}
-                                              cx="50%"
-                                              cy="50%"
-                                              outerRadius={80}
-                                              fill="#FF8042"
-                                              dataKey="value"
-                                              label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                                              labelLine={true}
-                                          >
-                                              {categoryDistribution.expenseData.map((entry, index) => (
-                                                  <Cell key={`cell-expense-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                                              ))}
-                                          </Pie>
-                                          <Tooltip
-                                              formatter={(value: number) => [`${formatNumber(value)} ₴`, 'Сума']}
-                                          />
-                                      </PieChart>
-                                  </ResponsiveContainer>
-                                  <div className="mt-2 text-xs text-gray-600 max-h-[120px] overflow-y-auto w-full">
-                                      {categoryDistribution.expenseData.map((item, index) => (
-                                          <div key={`legend-expense-${index}`} className="flex items-center gap-2 mb-1">
-                                              <div
-                                                  className="w-3 h-3 rounded-sm flex-shrink-0"
-                                                  style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}
-                                              />
-                                              <span className="truncate">{item.name}</span>
-                                              <span className="ml-auto font-medium">{formatNumber(item.value)} ₴</span>
-                                          </div>
-                                      ))}
-                                  </div>
-                              </>
-                          ) : (
-                              <p className="text-gray-500 text-sm py-10">Немає витрат за обраний період</p>
-                          )}
-                      </div>
+          <div className="bg-panel border border-line rounded-card px-5 py-[18px]">
+              <button type="button" className="w-full flex justify-between items-center" onClick={() => setIsChartDistributionOpen(open => !open)}>
+                  <span className="font-display text-sm sm:text-[15px] font-semibold">Розподіл за категоріями</span>
+                  {!isChartDistributionOpen && <span className="inline-flex items-center gap-1 text-[13px] text-ink-2">згорнуто <ChevronDown /></span>}
+              </button>
+              {isChartDistributionOpen && (categoryDistribution.incomeData.length > 0 || categoryDistribution.expenseData.length > 0) ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                      {[
+                          { title: 'Надходження', data: categoryDistribution.incomeData, color: 'text-income' },
+                          { title: 'Витрати', data: categoryDistribution.expenseData, color: 'text-expense' },
+                      ].map(group => (
+                          <div key={group.title}>
+                              <h3 className={`font-display text-[13px] font-semibold mb-2 ${group.color}`}>{group.title}</h3>
+                              {group.data.length > 0 ? (
+                                  <>
+                                      <ResponsiveContainer width="100%" height={220}>
+                                          <PieChart>
+                                              <Pie data={group.data} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={false} labelLine={false}>
+                                                  {group.data.map((entry, index) => <Cell key={`${group.title}-${entry.name}`} fill={CHART_SERIES[index % CHART_SERIES.length]} />)}
+                                              </Pie>
+                                              <Tooltip formatter={(value: number) => [`${formatNumber(value)} ₴`, 'Сума']} contentStyle={chartTooltipStyle} />
+                                          </PieChart>
+                                      </ResponsiveContainer>
+                                      <div className="mt-2 text-xs text-ink-2 max-h-[120px] overflow-y-auto">
+                                          {group.data.map((item, index) => (
+                                              <div key={`${group.title}-legend-${item.name}`} className="flex items-center gap-2 mb-1">
+                                                  <span className="w-3 h-3 rounded-[3px] flex-shrink-0" style={{ backgroundColor: CHART_SERIES[index % CHART_SERIES.length] }} />
+                                                  <span className="truncate">{item.name}</span>
+                                                  <span className="ml-auto font-medium tabular-nums">{formatNumber(item.value)} ₴</span>
+                                              </div>
+                                          ))}
+                                      </div>
+                                  </>
+                              ) : <p className="text-ink-2 text-sm py-10">Немає даних за обраний період</p>}
+                          </div>
+                      ))}
                   </div>
-                  ) : isChartDistributionOpen ? (
-                      <p className="text-center text-gray-500 py-6">Немає даних для відображення розподілу за обраними фільтрами.</p>
-                  ) : null}
-              </div>
-          )}
-          {/* --- Кінець графіків розподілу --- */}
+              ) : isChartDistributionOpen ? <p className="text-center text-ink-2 py-6">Немає даних для відображення розподілу за обраними фільтрами.</p> : null}
+          </div>
 
-
-          {/* --- Таблиця транзакцій --- */}
-          {/* Повний JSX Таблиці */}
-          {isLoading && <p className="mt-4 text-center">Завантаження транзакцій...</p>}
-          {!isLoading && !error && (
-              <div className="overflow-x-auto mt-4">
-                 {(pairs.unpaired.length > 0 || pairs.broken.length > 0 || pairs.noId > 0) && (
-                   <p className="mb-2 text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
-                     {pairs.unpaired.length > 0 && (<span title={pairs.unpaired.join(', ')}>Непарних переказів: <strong>{pairs.unpaired.length}</strong> — вихідні без привʼязаного вхідного ({pairs.unpaired.slice(0, 8).join(', ')}{pairs.unpaired.length > 8 ? '…' : ''}). </span>)}
-                     {pairs.broken.length > 0 && (<span className="text-red-700" title={pairs.broken.join(', ')}>Битих звʼязків: <strong>{pairs.broken.length}</strong> — звʼязок веде не на вихідний переказ або дубль ID ({pairs.broken.slice(0, 8).join(', ')}{pairs.broken.length > 8 ? '…' : ''}). </span>)}
-                     {pairs.noId > 0 && (<span className="text-red-700">Вихідних переказів без ID: <strong>{pairs.noId}</strong> — запусти fillMissingIds у скрипті.</span>)}
-                   </p>
-                 )}
-                 {skippedRows.length > 0 && (
-                   <p className="mb-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2" title="Рядок без дати, рахунку, категорії або з типом не «Надходження»/«Витрата» у звіт не потрапляє">
-                     Пропущено {skippedRows.length} {skippedRows.length === 1 ? 'рядок' : skippedRows.length < 5 ? 'рядки' : 'рядків'} таблиці з неповними даними: {skippedRows.slice(0, 20).join(', ')}{skippedRows.length > 20 ? '…' : ''}
-                   </p>
-                 )}
-                 <div className="flex items-center justify-between mb-2 gap-2">
-                   <span className="w-[4.5rem] hidden md:block" aria-hidden="true" />
-                   <h2 className="text-lg font-semibold text-center flex-1">Детальні Транзакції за Період</h2>
-                   {selectedIds.size > 0 && (
-                     <button type="button" onClick={handleCopy} className="shrink-0 px-3 py-1 text-sm font-medium rounded border border-[#8884D8] bg-white text-[#8884D8] hover:bg-indigo-50" title="Скопіювати виділені рядки текстом, як у таблиці">
-                       Скопіювати ({selectedIds.size})
-                     </button>
-                   )}
-                   {copiedToast && <span className="text-sm text-green-700">{copiedToast}</span>}
-                   <button
-                     type="button"
-                     onClick={handleExportXls}
-                     disabled={sortedTransactions.length === 0}
-                     className="w-[4.5rem] shrink-0 px-3 py-1 text-sm font-medium rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                     title="Завантажити транзакції звіту у XLSX"
-                   >
-                     XLSX
-                   </button>
-                 </div>
-                 <table className="min-w-full divide-y divide-gray-200">
-                   <thead className="bg-gray-50">
-                     <tr>
-                       <th scope="col" className="px-2 py-2 w-8"><input type="checkbox" aria-label="Виділити всі" checked={allVisibleSelected} onChange={toggleAllVisible} className="accent-[#8884D8]" /></th>
-                       <th scope="col" className="px-2 py-2 text-left text-xs uppercase tracking-wider font-medium text-gray-400">ID</th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'date' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('date')}
-                       >
-                         Дата {sortColumn === 'date' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-right text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'amount' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('amount')}
-                       >
-                         Сума {sortColumn === 'amount' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'description' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('description')}
-                       >
-                         Опис {sortColumn === 'description' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'category' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('category')}
-                       >
-                         Категорія {sortColumn === 'category' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'account' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('account')}
-                       >
-                         Рахунок {sortColumn === 'account' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'counterparty' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('counterparty')}
-                       >
-                         Контрагент {sortColumn === 'counterparty' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'project' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('project')}
-                       >
-                         Проект {sortColumn === 'project' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                     </tr>
-                   </thead>
-                   <tbody className="bg-white divide-y divide-gray-200">
-                     {/* Сортування */}
-                     {processedData.filteredTransactions.length === 0 ? (
-                       <tr> <td colSpan={9} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
-                     ) : (
-                       sortedTransactions.map((tx, index) => {
-                           const signed = signedAmount(tx);
-                           const rowBg = isOutgoing(tx) ? 'bg-indigo-50 hover:bg-indigo-100' : isTransfer(tx) ? 'bg-sky-50 hover:bg-sky-100' : tx.type === 'Витрата' ? 'bg-red-50 hover:bg-red-100' : 'bg-green-50 hover:bg-green-100';
-                           const amtColor = isOutgoing(tx) ? 'text-indigo-700' : isTransfer(tx) ? 'text-sky-700' : tx.type === 'Витрата' ? 'text-[#FF8042]' : 'text-[#00C49F]';
-                           const key = rowKey(tx);
-                           const linked = tx.id && isOutgoing(tx) ? (pairs.incomingByOut.get(tx.id) || []) : [];
-                           const inSum = linked.reduce((sum, i) => sum + i.amount, 0);
-                           const status = linked.length ? pairStatus(tx.amount, inSum) : null;
-                           return (
-                           <React.Fragment key={`${tx.id || tx.date}-${index}`}>
-                           <tr className={`${rowBg} ${selectedIds.has(key) ? 'ring-1 ring-inset ring-[#8884D8]' : ''} transition-colors duration-150 ease-in-out`}>
-                             <td className="px-2 py-2 w-8"><input type="checkbox" aria-label={`Виділити ${tx.id || ''}`} checked={selectedIds.has(key)} onChange={() => toggleSelected(key)} className="accent-[#8884D8]" /></td>
-                             <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-400 font-mono">{tx.id || <span className="text-red-600" title="Рядок без ID — запусти fillMissingIds">без ID</span>}{tx.link && <span className="block text-sky-600" title="Привʼязано до вихідного переказу">↩ {tx.link}</span>}{isIncoming(tx) && !tx.link && <span className="block text-amber-600" title="Вхідний переказ без звʼязку з вихідним">⚠ без звʼязку</span>}</td>
-                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{tx.date}</td>
-                             <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-medium ${amtColor}`}> {signed < 0 ? '-' : '+'} {formatNumber(tx.amount)} ₴{tx.noTax && <span className="ml-1 text-xs text-gray-400" title="Без 11%">∅</span>} </td>
-                             <td className="px-4 py-2 text-sm text-gray-500 min-w-[220px]">{tx.description}</td>
-                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.category}</td>
-                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.account}</td>
-                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.counterparty || '-'}</td>
-                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.project || '-'}</td>
-                           </tr>
-                           {isOutgoing(tx) && (
-                             <tr className="bg-indigo-50/40">
-                               <td></td><td></td>
-                               <td colSpan={7} className="px-4 pb-2 pt-0 text-xs text-gray-600">
-                                 {linked.length === 0 ? (
-                                   <span className="inline-flex items-center gap-1 text-amber-700"><span className="inline-block w-2 h-2 rounded-full bg-amber-400" aria-hidden="true"></span>↳ ще не повернувся — вхідного зі звʼязком на {tx.id} нема</span>
-                                 ) : (
-                                   <span>
-                                     {linked.map(i => (<span key={i.id || i.date} className="mr-3">↳ <span className="font-mono">{i.id}</span> {i.date} {i.account} +{formatNumber(i.amount)}</span>))}
-                                     <span className={status === 'ok' ? 'text-green-700' : 'text-amber-700 font-medium'}>
-                                       різниця {formatNumber(tx.amount - inSum)} ₴ {status === 'ok' ? '✓' : '⚠ не 0 і не 11%'}
-                                     </span>
-                                   </span>
-                                 )}
-                               </td>
-                             </tr>
-                           )}
-                           </React.Fragment>
-                           );
-                         })
-                     )}
-                     {/* Підсумкові рядки */}
-                     {processedData.filteredTransactions.length > 0 && (
-                         <>
-                             {/* Сума надходжень */}
-                             <tr className="bg-green-100 border-t-2 border-green-300">
-                                 <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-green-800">
-                                     Разом
-                                 </td>
-                                 <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-green-800">
-                                     + {formatNumber(totalSums.income)} ₴
-                                 </td>
-                                 <td colSpan={7} className="px-4 py-2 text-sm text-green-800">
-                                     <TooltipWithCalculation calculation={summaryCalculations.income}>
-                                         <span>Сума надходжень</span>
-                                     </TooltipWithCalculation>
-                                 </td>
-                             </tr>
-                             {/* Сума видатків */}
-                             <tr className="bg-red-100">
-                                 <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-red-800">
-                                     Разом
-                                 </td>
-                                 <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-red-800">
-                                     - {formatNumber(totalSums.expense)} ₴
-                                 </td>
-                                 <td colSpan={7} className="px-4 py-2 text-sm text-red-800">
-                                     <TooltipWithCalculation calculation={summaryCalculations.expense}>
-                                         <span>Сума видатків</span>
-                                     </TooltipWithCalculation>
-                                 </td>
-                             </tr>
-                             {/* Баланс */}
-                             <tr className="bg-purple-100 border-t-2 border-purple-300">
-                                 <td className="px-4 py-2 whitespace-nowrap text-sm font-bold text-purple-800">
-                                     Баланс
-                                 </td>
-                                 <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-bold ${totalSums.balance >= 0 ? 'text-purple-800' : 'text-red-600'}`}>
-                                     {formatNumber(totalSums.balance)} ₴
-                                 </td>
-                                 <td colSpan={7} className="px-4 py-2 text-sm text-purple-800">
-                                     <TooltipWithCalculation calculation={summaryCalculations.balance}>
-                                         <span>Надходження - Видатки</span>
-                                     </TooltipWithCalculation>
-                                 </td>
-                             </tr>
-                         </>
-                     )}
-                   </tbody>
-                 </table>
+          <div className="bg-panel border border-line rounded-card px-5 py-[18px]">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-2.5">
+                  <span className="font-display text-sm sm:text-[15px] font-semibold">Транзакції за період</span>
+                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                      {transferWarningText && <span className="text-xs text-expense" title={[pairs.unpaired.join(', '), skippedRows.join(', ')].filter(Boolean).join(' · ')}>⚠ {transferWarningText}</span>}
+                      {showPairRows && pairs.noId > 0 && <span className="text-xs text-danger">без ID: {pairs.noId}</span>}
+                      <button type="button" onClick={handleCopy} disabled={selectedIds.size === 0} className="inline-flex items-center px-3.5 py-[7px] rounded-full bg-ink text-white text-[13px] font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed" title="Скопіювати виділені рядки текстом, як у таблиці">Скопіювати ({selectedIds.size})</button>
+                      {copiedToast && <span className="text-income text-sm">{copiedToast}</span>}
+                      <button type="button" onClick={handleExportXls} disabled={sortedTransactions.length === 0} className="inline-flex items-center px-3.5 py-[7px] rounded-full border border-ink text-ink bg-panel text-[13px] font-medium hover:bg-mute disabled:opacity-40 disabled:cursor-not-allowed" title="Завантажити транзакції звіту у XLSX">XLSX</button>
+                  </div>
               </div>
+
+              <div className="sm:hidden">
+                  {sortedTransactions.length === 0 ? (
+                      <div className="py-4 text-center text-ink-2">За обраними фільтрами нічого немає. Активні: {resetLabel} {hasActiveFilters && <button type="button" onClick={resetSelectionFilters} className="ml-2 text-[13px] text-ink-2 underline underline-offset-[3px] hover:text-ink">Скинути</button>}</div>
+                  ) : sortedTransactions.map(tx => {
+                      const key = rowKey(tx);
+                      const linked = tx.id && isOutgoing(tx) ? (pairs.incomingByOut.get(tx.id) || []) : [];
+                      const inSum = linked.reduce((sum, i) => sum + i.amount, 0);
+                      const status = linked.length ? pairStatus(tx.amount, inSum) : null;
+                      return (
+                          <React.Fragment key={`mobile-${key}`}>
+                              <div className={`flex gap-2.5 py-2.5 border-b border-line ${selectedIds.has(key) ? 'bg-mute -mx-4 px-4' : ''}`}>
+                                  <div className="pt-0.5">{renderCheckbox(selectedIds.has(key), () => toggleSelected(key), `Виділити ${tx.id || ''}`)}</div>
+                                  <div className="flex-1 min-w-0 flex flex-col gap-1">
+                                      <div className="flex justify-between items-baseline gap-2">
+                                          <span className="text-xs text-ink-2 tabular-nums truncate">{formatDateShort(tx.date, false)} · {tx.account} · {tx.id || 'без ID'}</span>
+                                          <span className={`text-[15px] font-semibold tabular-nums whitespace-nowrap ${amountClass(tx)}`}>{formatMoney(signedAmount(tx))}</span>
+                                      </div>
+                                      <div className="text-sm">{tx.description}</div>
+                                      <div className="flex justify-between items-center gap-2">
+                                          <span className="text-xs text-ink-2 truncate">{tx.category}</span>
+                                          <span className={`inline-block px-[9px] py-[3px] rounded-full text-[11.5px] font-medium ${typeClasses(tx)}`}>{displayType(tx)}</span>
+                                      </div>
+                                  </div>
+                              </div>
+                              {showPairRows && isOutgoing(tx) && (
+                                  <div className={`text-xs border-b border-line pb-2 ${status === 'ok' ? 'text-income' : 'text-expense'}`}>
+                                      {linked.length === 0 ? '↳ ще не повернувся' : <>↳ {linked.map(i => i.id).filter(Boolean).join(', ')} · різниця {formatNumber(tx.amount - inSum)} {status === 'ok' ? '✓' : '⚠ не 0 і не 11%'}</>}
+                                  </div>
+                              )}
+                          </React.Fragment>
+                      );
+                  })}
+              </div>
+
+              <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full border-collapse text-[13.5px]">
+                      <thead>
+                          <tr>
+                              <th className="px-2.5 py-2 text-left border-b border-line w-8">{renderCheckbox(allVisibleSelected, toggleAllVisible, 'Виділити всі')}</th>
+                              {columns.map(col => (
+                                  <th key={col.key} className={`px-2.5 py-2 border-b border-line text-[11px] uppercase tracking-[.06em] font-medium cursor-pointer select-none whitespace-nowrap ${col.align} ${sortColumn === col.key ? 'text-ink' : 'text-ink-2'}`} onClick={() => handleSort(col.key)}>
+                                      {col.label}{sortColumn === col.key && <SortArrow direction={sortDirection} />}
+                                  </th>
+                              ))}
+                          </tr>
+                      </thead>
+                      <tbody>
+                          {sortedTransactions.length === 0 ? (
+                              <tr><td colSpan={10} className="py-4 text-center text-ink-2">За обраними фільтрами нічого немає. Активні: {resetLabel} {hasActiveFilters && <button type="button" onClick={resetSelectionFilters} className="ml-2 text-[13px] text-ink-2 underline underline-offset-[3px] hover:text-ink">Скинути</button>}</td></tr>
+                          ) : sortedTransactions.map(tx => {
+                              const key = rowKey(tx);
+                              const linked = tx.id && isOutgoing(tx) ? (pairs.incomingByOut.get(tx.id) || []) : [];
+                              const inSum = linked.reduce((sum, i) => sum + i.amount, 0);
+                              const status = linked.length ? pairStatus(tx.amount, inSum) : null;
+                              return (
+                                  <React.Fragment key={key}>
+                                      <tr className={selectedIds.has(key) ? 'bg-mute' : ''}>
+                                          <td className="px-2.5 py-2.5 border-b border-line align-top">{renderCheckbox(selectedIds.has(key), () => toggleSelected(key), `Виділити ${tx.id || ''}`)}</td>
+                                          <td className="px-2.5 py-2.5 border-b border-line align-top text-xs text-ink-2 tabular-nums whitespace-nowrap">{tx.id || <span className="text-danger" title="Рядок без ID — запусти fillMissingIds">без ID</span>}{tx.link && <span className="block text-tin" title="Привʼязано до вихідного переказу">↩ {tx.link}</span>}{isIncoming(tx) && !tx.link && <span className="block text-expense" title="Вхідний переказ без звʼязку з вихідним">⚠ без звʼязку</span>}</td>
+                                          <td className="px-2.5 py-2.5 border-b border-line align-top tabular-nums whitespace-nowrap">{formatDateShort(tx.date)}</td>
+                                          <td className="px-2.5 py-2.5 border-b border-line align-top"><span className={`inline-block px-[9px] py-[3px] rounded-full text-[11.5px] font-medium whitespace-nowrap ${typeClasses(tx)}`}>{displayType(tx)}</span></td>
+                                          <td className={`px-2.5 py-2.5 border-b border-line align-top text-right whitespace-nowrap font-semibold tabular-nums ${amountClass(tx)}`}>{formatMoney(signedAmount(tx))} ₴{tx.noTax && <span className="ml-1 text-xs text-ink-3" title="Без 11%">∅</span>}</td>
+                                          <td className="px-2.5 py-2.5 border-b border-line align-top min-w-[220px]">{tx.description}</td>
+                                          <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.category}</td>
+                                          <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
+                                          <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.counterparty || '—'}</td>
+                                          <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.project || '—'}</td>
+                                      </tr>
+                                      {showPairRows && isOutgoing(tx) && (
+                                          <tr>
+                                              <td className="px-2.5 py-0 border-b border-line"></td>
+                                              <td colSpan={9} className={`px-2.5 pb-2 pt-0 border-b border-line text-xs ${status === 'ok' ? 'text-income' : 'text-expense'}`}>
+                                                  {linked.length === 0 ? '↳ ще не повернувся' : <>↳ {linked.map(i => i.id).filter(Boolean).join(', ')} · різниця {formatNumber(tx.amount - inSum)} {status === 'ok' ? '✓' : '⚠ не 0 і не 11%'}</>}
+                                              </td>
+                                          </tr>
+                                      )}
+                                  </React.Fragment>
+                              );
+                          })}
+                          {sortedTransactions.length > 0 && (
+                              <tr className="border-t-[1.5px] border-ink font-semibold">
+                                  <td colSpan={4} className="px-2.5 py-3">Разом за період</td>
+                                  <td className="px-2.5 py-3 text-right whitespace-nowrap tabular-nums"><span className="text-income">+ {formatNumber(totalSums.income)}</span> <span className="text-expense">− {formatNumber(totalSums.expense)}</span> = {formatNumber(totalSums.balance)}</td>
+                                  <td colSpan={5} className="px-2.5 py-3 text-xs text-ink-2 font-normal">{sortedTransactions.length} транзакцій · надходження − витрати, перекази не рахуються</td>
+                              </tr>
+                          )}
+                      </tbody>
+                  </table>
+              </div>
+          </div>
+          </>
           )}
-          {/* --- Кінець Таблиці --- */}
         </div>
       );
 };
