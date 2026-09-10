@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Golos_Text, Unbounded } from 'next/font/google';
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import './globals.css';
 import { SheetDataProvider, useSheetData } from '@/hooks/useSheetData';
@@ -20,7 +19,7 @@ const formatNumber = (num: number): string => {
     return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-// design-md: fintracker Журнал v1 — шрифти як CSS-змінні, класи font-sans / font-display беруть їх із tailwind.config.ts
+// design-md: fintracker Журнал v1 — шрифти як CSS-змінні; класи font-sans / font-display беруть їх із tailwind.config.ts
 const golos = Golos_Text({ subsets: ['latin', 'cyrillic'], weight: ['400', '500', '600'], variable: '--font-golos' });
 const unbounded = Unbounded({ subsets: ['latin', 'cyrillic'], weight: ['500', '700'], variable: '--font-unbounded' });
 
@@ -40,8 +39,10 @@ export default function RootLayout({
 function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { data, isLoading: headerIsLoading, error: headerError, refresh } = useSheetData();
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   useEffect(() => { document.title = 'Місцеві гроші: фінансова звітність'; }, []);
+  useEffect(() => { if (data) setLastUpdatedAt(new Date()); }, [data]);
 
   // Налаштування ранвею: які витратні категорії НЕ входять у знаменник (зберігається в браузері)
   const [runwayExcluded, setRunwayExcluded] = usePersistedState<string[]>('finance-tracker-runway-excluded', RUNWAY_EXCLUDED_DEFAULT);
@@ -85,132 +86,104 @@ function AppShell({ children }: { children: React.ReactNode }) {
         return { currentTotalBalance, runwayMonths, balanceTooltipText, expenseCategories, avgMonthlyExpense, totalExpensesLast3Months, includedExpenses, monthsDivisor };
     }, [headerAllTransactions, headerAccounts, runwayExcluded]);
 
+  const navItems = [
+    { href: '/', label: 'Баланс', active: pathname === '/' || pathname === '/transactions' },
+    { href: '/earn', label: 'Зароблено', active: pathname === '/earn' },
+    { href: '/projects', label: 'Проекти', active: pathname === '/projects' },
+    { href: '/fop', label: 'ФОП', active: pathname === '/fop' },
+  ];
+  const runwayValue = headerMetrics.runwayMonths === null ? 'N/A' : headerMetrics.runwayMonths === Infinity ? '∞' : headerMetrics.runwayMonths.toFixed(1).replace('.', ',');
+  const runwaySuffix = runwayExcluded.length > 0 ? `міс · без ${runwayExcluded.length} ${runwayExcluded.length === 1 ? 'категорії' : 'категорій'}` : 'міс';
+  const updatedLabel = lastUpdatedAt
+    ? `Оновлено ${lastUpdatedAt.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}`
+    : 'Оновлено --:--';
+
   return (
     <html lang="uk">
       <head />
       <body className={`${golos.variable} ${unbounded.variable} font-sans bg-paper text-ink`}>
-        <header className="bg-white shadow sticky top-0 z-20">
-          {/* Змінив h-16 на h-auto та додав min-h-16 для гнучкості */}
-          <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-16 flex items-center justify-between gap-4 flex-wrap md:flex-nowrap"> {/* Додав flex-wrap для мобільних */}
-
-             {/* Логотип та навігація */}
-             <div className="w-full md:w-auto flex justify-center md:justify-start items-center gap-2 sm:gap-4 flex-shrink-0 py-2">
-                <Link href="/" className="flex items-center flex-shrink-0">
-                    <Image src="/logo.png" alt="Логотип Місцеві гроші" width={300} height={75} priority className="h-8 sm:h-10 md:h-12 w-auto" />
-                </Link>
-                <nav className="flex items-center gap-1 sm:gap-2">
-                  <Link
-                    href="/"
-                    className={`px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm font-medium transition-colors ${
-                      pathname === '/' || pathname === '/transactions'
-                        ? 'bg-[#8884D8] text-white'
-                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                    }`}
-                  >
-                    Баланс
+        <header className="md:sticky md:top-0 z-20 bg-paper">
+          {/* design-md: fintracker Журнал v1 */}
+          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-12">
+            <div className="flex items-center justify-between gap-4 pt-4 md:pt-5 pb-2">
+              <Link href="/" className="font-display font-bold text-sm md:text-base whitespace-nowrap">
+                Місцеві гроші
+              </Link>
+              <nav className="hidden md:flex items-center gap-1">
+                {navItems.map(item => (
+                  <Link key={item.href} href={item.href} className={`px-4 py-2 rounded-full text-[13px] font-medium ${item.active ? 'bg-ink text-white' : 'text-ink-2 hover:text-ink'}`}>
+                    {item.label}
                   </Link>
-                  <Link
-                    href="/earn"
-                    className={`px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm font-medium transition-colors ${
-                      pathname === '/earn'
-                        ? 'bg-[#8884D8] text-white'
-                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                    }`}
-                  >
-                    Зароблено
-                  </Link>
-                  <Link
-                    href="/projects"
-                    className={`px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm font-medium transition-colors ${
-                      pathname === '/projects'
-                        ? 'bg-[#8884D8] text-white'
-                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                    }`}
-                  >
-                    Проекти
-                  </Link>
-                  <Link
-                    href="/fop"
-                    className={`px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm font-medium transition-colors ${
-                      pathname === '/fop'
-                        ? 'bg-[#8884D8] text-white'
-                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                    }`}
-                  >
-                    ФОП
-                  </Link>
-                </nav>
-             </div>
-
-             {/* Показники (по центру) */}
-              {/* Займає всю ширину на моб, центрується на десктопі */}
-             <div className="w-full md:flex-grow flex justify-center items-center gap-x-4 sm:gap-x-6 gap-y-1 flex-wrap order-3 md:order-2 py-1 md:py-0">
-               {headerIsLoading ? ( <span className="text-xs md:text-sm text-gray-500">Завантаження...</span> )
-                : headerError ? ( <span className="text-xs md:text-sm font-medium text-red-600" title={headerError}>Помилка завантаження даних</span> ) : (
-                   <>
-                       <div title={headerMetrics.balanceTooltipText} className="text-center md:text-left"> {/* Центрування для моб */}
-                           <span className="text-xs md:text-sm font-medium text-gray-500">Кошти: </span>
-                           <span className="text-base md:text-lg font-semibold text-[#8884D8]">{formatNumber(headerMetrics.currentTotalBalance)} ₴</span>
-                       </div>
-                       <div className="text-center md:text-left relative" ref={runwayRef}>
-                           <button type="button" onClick={() => setRunwayOpen(o => !o)} className="hover:underline decoration-dotted underline-offset-4" title="Налаштувати, які витрати входять у ранвей">
-                               <span className="text-xs md:text-sm font-medium text-gray-500">Ранвей: </span>
-                               <span className="text-base md:text-lg font-semibold text-[#8884D8]">{headerMetrics.runwayMonths === null ? 'N/A' : headerMetrics.runwayMonths === Infinity ? '∞' : headerMetrics.runwayMonths.toFixed(1)} міс.</span>
-                               {runwayExcluded.length > 0 && <span className="ml-1 text-xs text-gray-400" title={`Без: ${runwayExcluded.join(', ')}`}>−{runwayExcluded.length}</span>}
-                           </button>
-                           {runwayOpen && (
-                               <div className="absolute left-1/2 -translate-x-1/2 md:left-auto md:right-0 md:translate-x-0 top-full mt-2 z-30 w-80 bg-white border border-gray-200 rounded shadow-lg p-3 text-left">
-                                   <div className="text-xs text-gray-500 mb-2">Ранвей = кошти / (обрані витрати за 3 повні місяці / 3). Зніми галочку, щоб виключити категорію.</div>
-                                   <ul className="max-h-72 overflow-y-auto divide-y divide-gray-100">
-                                       {headerMetrics.expenseCategories.map(c => (
-                                           <li key={c.category} className="flex items-center gap-2 py-1 text-sm">
-                                               <input type="checkbox" id={`rw-${c.category}`} checked={c.included} onChange={() => setRunwayExcluded(prev => c.included ? [...prev, c.category] : prev.filter(x => x !== c.category))} className="accent-[#8884D8]" />
-                                               <label htmlFor={`rw-${c.category}`} className={`flex-1 cursor-pointer ${c.included ? 'text-gray-800' : 'text-gray-400 line-through'}`}>{c.category}</label>
-                                               <span className={`font-mono text-xs ${c.included ? 'text-gray-600' : 'text-gray-400'}`}>{formatNumber(c.sum / headerMetrics.monthsDivisor)}/міс</span>
-                                           </li>
-                                       ))}
-                                   </ul>
-                                   <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-600 flex justify-between">
-                                       <span>У знаменнику: <strong>{formatNumber(headerMetrics.avgMonthlyExpense)}</strong>/міс</span>
-                                       <span className="text-gray-400">усього {formatNumber(headerMetrics.totalExpensesLast3Months / headerMetrics.monthsDivisor)}/міс</span>
-                                   </div>
-                                   {runwayExcluded.length > 0 && <button type="button" onClick={() => setRunwayExcluded([])} className="mt-2 text-xs text-[#8884D8] hover:underline">Включити все</button>}
-                               </div>
-                           )}
-                       </div>
-                       <button
-                           type="button"
-                           onClick={refresh}
-                           className="text-xs md:text-sm font-medium text-[#8884D8] hover:text-[#6c63b8] hover:underline"
-                           title="Перечитати дані з Google Таблиці"
-                       >
-                           Оновити
-                       </button>
-                       {/* Посилання на Джерело (показується в рядку на мобільних) */}
-                       <div className="md:hidden">
-                          <a href="https://docs.google.com/spreadsheets/d/1jl54qnar1R0nDdAIxJF6uN4eMPXacOfqasNAuwm8BNk/edit" target="_blank" rel="noopener noreferrer"
-                             className="text-xs font-medium text-[#8884D8] hover:text-[#6c63b8] hover:underline whitespace-nowrap"
-                          >
-                             Джерело
-                          </a>
-                       </div>
-                   </>
-               )}
-             </div>
-
-             {/* Посилання на Джерело (праворуч на десктопі) */}
-             <div className="hidden md:block flex-shrink-0 py-2 order-2 md:order-3"> {/* Змінив порядок для flex-wrap */}
-                <a href="https://docs.google.com/spreadsheets/d/1jl54qnar1R0nDdAIxJF6uN4eMPXacOfqasNAuwm8BNk/edit" target="_blank" rel="noopener noreferrer"
-                   className="text-sm font-medium text-[#8884D8] hover:text-[#6c63b8] hover:underline whitespace-nowrap"
+                ))}
+              </nav>
+              <div className="flex items-center gap-[18px]">
+                <button
+                  type="button"
+                  onClick={refresh}
+                  className={`text-[13px] underline underline-offset-[3px] ${headerIsLoading && data ? 'text-ink-3 no-underline' : 'text-ink-2 hover:text-ink'}`}
+                  title="Перечитати дані з Google Таблиці"
                 >
-                   Джерело
+                  {headerIsLoading && data ? 'Оновлюю...' : 'Оновити'}
+                </button>
+                <a href="https://docs.google.com/spreadsheets/d/1jl54qnar1R0nDdAIxJF6uN4eMPXacOfqasNAuwm8BNk/edit" target="_blank" rel="noopener noreferrer" className="hidden md:inline text-[13px] text-ink-2 underline underline-offset-[3px] hover:text-ink whitespace-nowrap">
+                  Джерело
                 </a>
-             </div>
-
-          </nav>
+              </div>
+            </div>
+            <nav className="flex md:hidden items-center gap-1 pb-1 overflow-x-auto">
+              {navItems.map(item => (
+                <Link key={item.href} href={item.href} className={`px-3 py-[7px] rounded-full text-[13px] font-medium whitespace-nowrap ${item.active ? 'bg-ink text-white' : 'text-ink-2 hover:text-ink'}`}>
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+            <div className="py-3 md:pt-[22px] md:pb-[26px] flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+              {headerError ? (
+                <span className="text-danger text-sm" title={headerError}>Помилка завантаження даних</span>
+              ) : headerIsLoading && !data ? (
+                <span className="text-sm text-ink-2">Завантаження...</span>
+              ) : (
+                <div className="flex gap-6 md:gap-9 items-end flex-wrap">
+                  <div title={headerMetrics.balanceTooltipText}>
+                    <div className="text-[11px] uppercase tracking-[.08em] text-ink-2">Кошти</div>
+                    <div className="font-display text-[22px] md:text-[30px] font-bold leading-[1.1] whitespace-nowrap">
+                      {formatNumber(headerMetrics.currentTotalBalance).replace(',00', '')} <span className="text-[14px] md:text-[18px] font-medium text-ink-2">₴</span>
+                    </div>
+                  </div>
+                  <div className="relative min-w-0" ref={runwayRef}>
+                    <button type="button" onClick={() => setRunwayOpen(o => !o)} className="text-left" title="Налаштувати, які витрати входять у ранвей">
+                      <div className="text-[11px] uppercase tracking-[.08em] text-ink-2">Ранвей</div>
+                      <div className="font-display text-[22px] md:text-[30px] font-bold leading-[1.1] whitespace-nowrap">
+                        {runwayValue} <span className="text-[13px] md:text-[18px] font-medium text-ink-2 whitespace-normal">{runwaySuffix}</span>
+                      </div>
+                    </button>
+                    {runwayOpen && (
+                      <div className="absolute left-0 md:right-0 md:left-auto top-full mt-2 z-30 w-[320px] max-w-[calc(100vw-32px)] bg-panel border border-line rounded-card p-3 text-left">
+                        <div className="text-xs text-ink-2 mb-2">Ранвей = кошти / (обрані витрати за 3 повні місяці / 3). Зніми галочку, щоб виключити категорію.</div>
+                        <ul className="max-h-72 overflow-y-auto divide-y divide-line">
+                          {headerMetrics.expenseCategories.map(c => (
+                            <li key={c.category} className="flex items-center gap-2 py-1 text-sm">
+                              <input type="checkbox" id={`rw-${c.category}`} checked={c.included} onChange={() => setRunwayExcluded(prev => c.included ? [...prev, c.category] : prev.filter(x => x !== c.category))} className="h-4 w-4 rounded-[5px] border-[1.5px] border-line bg-panel accent-ink" />
+                              <label htmlFor={`rw-${c.category}`} className={`flex-1 cursor-pointer ${c.included ? 'text-ink' : 'text-ink-3 line-through'}`}>{c.category}</label>
+                              <span className={`text-xs tabular-nums ${c.included ? 'text-ink-2' : 'text-ink-3'}`}>{formatNumber(c.sum / headerMetrics.monthsDivisor)}/міс</span>
+                            </li>
+                          ))}
+                        </ul>
+                        <div className="mt-2 pt-2 border-t border-line text-xs text-ink-2 flex justify-between gap-3">
+                          <span>У знаменнику: <strong>{formatNumber(headerMetrics.avgMonthlyExpense)}</strong>/міс</span>
+                          <span className="text-ink-3">усього {formatNumber(headerMetrics.totalExpensesLast3Months / headerMetrics.monthsDivisor)}/міс</span>
+                        </div>
+                        {runwayExcluded.length > 0 && <button type="button" onClick={() => setRunwayExcluded([])} className="mt-2 text-xs text-ink-2 underline underline-offset-[3px] hover:text-ink">Включити все</button>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {!headerError && data && <span className="hidden md:inline text-xs text-ink-2">{updatedLabel}</span>}
+            </div>
+          </div>
         </header>
-        {/* Основний контент */}
-        <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        <main className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-12 pb-10">
           {children}
         </main>
       </body>
