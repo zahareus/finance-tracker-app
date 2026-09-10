@@ -671,11 +671,11 @@ const TransactionsPage: React.FC = () => {
     const columns = [
         { key: 'id', label: 'ID', align: 'text-left' },
         { key: 'date', label: 'Дата', align: 'text-left' },
+        { key: 'account', label: 'Рахунок', align: 'text-left' },
         { key: 'type', label: 'Тип', align: 'text-left' },
         { key: 'amount', label: 'Сума', align: 'text-right' },
         { key: 'description', label: 'Опис', align: 'text-left' },
         { key: 'category', label: 'Категорія', align: 'text-left' },
-        { key: 'account', label: 'Рахунок', align: 'text-left' },
         { key: 'counterparty', label: 'Контрагент', align: 'text-left' },
         { key: 'project', label: 'Проєкт', align: 'text-left' },
     ];
@@ -934,11 +934,11 @@ const TransactionsPage: React.FC = () => {
                                           <td className="px-2.5 py-2.5 border-b border-line align-top">{renderCheckbox(selectedIds.has(key), () => toggleSelected(key), `Виділити ${tx.id || ''}`)}</td>
                                           <td className="px-2.5 py-2.5 border-b border-line align-top text-[11px] text-ink-3 tabular-nums whitespace-nowrap">{tx.id || <span className="text-danger" title="Рядок без ID — запусти fillMissingIds">без ID</span>}{tx.link && <span className="block text-tin" title="Привʼязано до вихідного переказу">↩ {tx.link}</span>}{isIncoming(tx) && !tx.link && <span className="block text-expense" title="Вхідний переказ без звʼязку з вихідним">⚠ без звʼязку</span>}</td>
                                           <td className="px-2.5 py-2.5 border-b border-line align-top tabular-nums whitespace-nowrap">{formatDateShort(tx.date)}</td>
+                                          <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
                                           <td className="px-2.5 py-2.5 border-b border-line align-top"><span className={`inline-block px-[9px] py-[3px] rounded-full text-[11.5px] font-medium whitespace-nowrap ${typeClasses(tx)}`}>{displayType(tx)}</span></td>
                                           <td className={`px-2.5 py-2.5 border-b border-line align-top text-right whitespace-nowrap font-semibold tabular-nums ${amountClass(tx)}`}>{formatMoney(signedAmount(tx))} ₴{tx.noTax && <span className="ml-1 text-xs text-ink-3" title="Без 11%">∅</span>}</td>
                                           <td className="px-2.5 py-2.5 border-b border-line align-top min-w-[220px]">{tx.description}</td>
                                           <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.category}</td>
-                                          <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
                                           <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.counterparty || '—'}</td>
                                           <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.project || '—'}</td>
                                       </tr>
@@ -955,9 +955,9 @@ const TransactionsPage: React.FC = () => {
                           })}
                           {sortedTransactions.length > 0 && (
                               <tr className="border-t-[1.5px] border-ink font-semibold">
-                                  <td colSpan={4} className="px-2.5 py-3">Разом за період</td>
+                                  <td colSpan={5} className="px-2.5 py-3">Разом за період</td>
                                   <td className="px-2.5 py-3 text-right whitespace-nowrap tabular-nums"><span className="text-income">+ {formatNumber(totalSums.income)}</span> <span className="text-expense">− {formatNumber(totalSums.expense)}</span> = {formatNumber(totalSums.balance)}</td>
-                                  <td colSpan={5} className="px-2.5 py-3 text-xs text-ink-2 font-normal">{sortedTransactions.length} транзакцій · надходження − витрати, перекази не рахуються</td>
+                                  <td colSpan={4} className="px-2.5 py-3 text-xs text-ink-2 font-normal">{sortedTransactions.length} транзакцій · надходження − витрати, перекази не рахуються</td>
                               </tr>
                           )}
                       </tbody>

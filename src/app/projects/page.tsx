@@ -277,11 +277,11 @@ const ProjectsPage: React.FC = () => {
   const columns = [
     { key: 'id', label: 'ID', align: 'text-left' },
     { key: 'date', label: 'Дата', align: 'text-left' },
+    { key: 'account', label: 'Рахунок', align: 'text-left' },
     { key: 'type', label: 'Тип', align: 'text-left' },
     { key: 'amount', label: 'Сума', align: 'text-right' },
     { key: 'description', label: 'Опис', align: 'text-left' },
     { key: 'category', label: 'Категорія', align: 'text-left' },
-    { key: 'account', label: 'Рахунок', align: 'text-left' },
     { key: 'counterparty', label: 'Контрагент', align: 'text-left' },
   ];
 
@@ -398,11 +398,11 @@ const ProjectsPage: React.FC = () => {
                           <td className="px-2.5 py-2.5 border-b border-line align-top"><Checkbox checked={selectedIds.has(key)} onChange={() => toggleSelected(key)} label={`Виділити ${tx.id || ''}`} /></td>
                           <td className="px-2.5 py-2.5 border-b border-line align-top text-[11px] text-ink-3 tabular-nums whitespace-nowrap">{tx.id || 'без ID'}</td>
                           <td className="px-2.5 py-2.5 border-b border-line align-top tabular-nums whitespace-nowrap">{formatDateShort(tx.date)}</td>
+                          <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
                           <td className="px-2.5 py-2.5 border-b border-line align-top"><TypeChip tx={tx} /></td>
                           <td className={`px-2.5 py-2.5 border-b border-line align-top text-right whitespace-nowrap font-semibold tabular-nums ${amountClass(tx)}`}>{tx.type === 'Витрата' ? '−' : '+'} {formatNumber(tx.amount)} ₴</td>
                           <td className="px-2.5 py-2.5 border-b border-line align-top min-w-[220px]">{tx.description}</td>
                           <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.category}</td>
-                          <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
                           <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.counterparty || '—'}</td>
                         </tr>
                       );
@@ -410,39 +410,39 @@ const ProjectsPage: React.FC = () => {
                     {sortedTransactions.length > 0 && (
                       <>
                         <tr className="border-t-[1.5px] border-ink">
-                          <td colSpan={4} className="px-2.5 py-2.5 font-semibold">Надходження</td>
+                          <td colSpan={5} className="px-2.5 py-2.5 font-semibold">Надходження</td>
                           <td className="px-2.5 py-2.5 text-right whitespace-nowrap font-semibold tabular-nums text-income">+ {formatNumber(projectData.totalIncome)} ₴</td>
-                          <td colSpan={4}></td>
+                          <td colSpan={3}></td>
                         </tr>
                         <tr>
-                          <td colSpan={4} className="px-2.5 py-1.5">Витрати</td>
+                          <td colSpan={5} className="px-2.5 py-1.5">Витрати</td>
                           <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums text-expense">− {formatNumber(projectData.totalExpenses)} ₴</td>
-                          <td colSpan={4}></td>
+                          <td colSpan={3}></td>
                         </tr>
                         <tr>
-                          <td colSpan={4} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.taxes}><span>Податки та комісії посередників 11%</span></TooltipWithCalculation></td>
+                          <td colSpan={5} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.taxes}><span>Податки та комісії посередників 11%</span></TooltipWithCalculation></td>
                           <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums">− {formatNumber(projectData.taxes)} ₴</td>
-                          <td colSpan={4}></td>
+                          <td colSpan={3}></td>
                         </tr>
                         <tr>
-                          <td colSpan={4} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.bonusFromSum}><span>Бонус з суми ({projectData.bonusFromSumPercent}%)</span></TooltipWithCalculation></td>
+                          <td colSpan={5} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.bonusFromSum}><span>Бонус з суми ({projectData.bonusFromSumPercent}%)</span></TooltipWithCalculation></td>
                           <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums">− {formatNumber(projectData.bonusFromSum)} ₴</td>
-                          <td colSpan={4}></td>
+                          <td colSpan={3}></td>
                         </tr>
                         <tr>
-                          <td colSpan={4} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.bonusFromBalance}><span>Бонус з балансу ({projectData.bonusFromBalancePercent}%)</span></TooltipWithCalculation></td>
+                          <td colSpan={5} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.bonusFromBalance}><span>Бонус з балансу ({projectData.bonusFromBalancePercent}%)</span></TooltipWithCalculation></td>
                           <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums">− {formatNumber(projectData.bonusFromBalance)} ₴</td>
-                          <td colSpan={4}></td>
+                          <td colSpan={3}></td>
                         </tr>
                         <tr>
-                          <td colSpan={4} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.paidBonuses}><span>Виплачено бонусів</span></TooltipWithCalculation></td>
+                          <td colSpan={5} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.paidBonuses}><span>Виплачено бонусів</span></TooltipWithCalculation></td>
                           <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums">− {formatNumber(projectData.paidBonuses)} ₴</td>
-                          <td colSpan={4}></td>
+                          <td colSpan={3}></td>
                         </tr>
                         <tr className="border-t border-line font-semibold">
-                          <td colSpan={4} className="px-2.5 py-2.5"><TooltipWithCalculation calculation={calculations.balance}><span>Баланс проєкту</span></TooltipWithCalculation></td>
+                          <td colSpan={5} className="px-2.5 py-2.5"><TooltipWithCalculation calculation={calculations.balance}><span>Баланс проєкту</span></TooltipWithCalculation></td>
                           <td className={`px-2.5 py-2.5 text-right whitespace-nowrap tabular-nums ${projectData.balance < 0 ? 'text-tout' : ''}`}>= {formatNumber(projectData.balance)} ₴</td>
-                          <td colSpan={4}></td>
+                          <td colSpan={3}></td>
                         </tr>
                       </>
                     )}

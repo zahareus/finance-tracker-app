@@ -358,10 +358,10 @@ const EarnPage: React.FC = () => {
   const columns = [
     { key: 'id', label: 'ID', align: 'text-left' },
     { key: 'date', label: 'Дата', align: 'text-left' },
+    { key: 'account', label: 'Рахунок', align: 'text-left' },
     { key: 'amount', label: 'Сума', align: 'text-right' },
     { key: 'category', label: 'Категорія', align: 'text-left' },
     { key: 'description', label: 'Опис', align: 'text-left' },
-    { key: 'account', label: 'Рахунок', align: 'text-left' },
     { key: 'counterparty', label: 'Контрагент', align: 'text-left' },
   ];
 
@@ -505,19 +505,19 @@ const EarnPage: React.FC = () => {
                         <td className="px-2.5 py-2.5 border-b border-line align-top"><Checkbox checked={selectedIds.has(key)} onChange={() => toggleSelected(key)} label={`Виділити ${tx.id || ''}`} /></td>
                         <td className="px-2.5 py-2.5 border-b border-line align-top text-[11px] text-ink-3 tabular-nums whitespace-nowrap">{tx.id || 'без ID'}</td>
                         <td className="px-2.5 py-2.5 border-b border-line align-top tabular-nums whitespace-nowrap">{formatDateShort(tx.date)}</td>
+                        <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
                         <td className="px-2.5 py-2.5 border-b border-line align-top text-right whitespace-nowrap font-semibold tabular-nums text-income">+ {formatNumber(tx.amount)} ₴</td>
                         <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap"><span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categoryColor(tx.category, categories) }} />{tx.category}</span></td>
                         <td className="px-2.5 py-2.5 border-b border-line align-top min-w-[220px]">{tx.description}</td>
-                        <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
                         <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.counterparty || '—'}</td>
                       </tr>
                     );
                   })}
                   {sortedTransactions.length > 0 && (
                     <tr className="border-t-[1.5px] border-ink font-semibold">
-                      <td colSpan={3} className="px-2.5 py-3">Разом надходжень</td>
+                      <td colSpan={4} className="px-2.5 py-3">Разом надходжень</td>
                       <td className="px-2.5 py-3 text-right whitespace-nowrap tabular-nums text-income">+ {formatNumber(processedData.totalIncome)} ₴</td>
-                      <td colSpan={4} className="px-2.5 py-3 text-xs text-ink-2 font-normal">{sortedTransactions.length} транзакцій · без «Початковий баланс» і переказів</td>
+                      <td colSpan={3} className="px-2.5 py-3 text-xs text-ink-2 font-normal">{sortedTransactions.length} транзакцій · без «Початковий баланс» і переказів</td>
                     </tr>
                   )}
                 </tbody>
