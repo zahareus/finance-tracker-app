@@ -2,13 +2,15 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-    ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+    ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
     PieChart, Pie, Cell
 } from 'recharts';
 import { usePersistedFilters, usePersistedState } from '@/hooks/usePersistedState';
 import { useSheetData } from '@/hooks/useSheetData';
 import { VALID_TYPES, isOutgoing, isIncoming, isTransfer, signedAmount, pairStatus, parseDate } from '@/lib/tx';
 import { T, CHART_SERIES, chartTooltipStyle } from '@/lib/theme';
+import { copyRowsToClipboard, useCopyToast } from '@/lib/copyRows';
+import { Checkbox, TooltipWithCalculation } from '@/components/ui';
 
 // --- Типи даних ---
 interface Transaction {
@@ -109,34 +111,6 @@ const SortArrow = ({ direction }: { direction: 'asc' | 'desc' }) => (
     </svg>
 );
 // --- Кінець хелперів ---
-
-// Компонент для тултіпа з розрахунком
-const TooltipWithCalculation: React.FC<{
-    children: React.ReactNode;
-    calculation: string;
-}> = ({ children, calculation }) => {
-    const [isVisible, setIsVisible] = useState(false);
-
-    return (
-        <div className="relative inline-flex items-center gap-1">
-            {children}
-            <button
-                className="text-ink-3 hover:text-ink-2 cursor-help text-xs font-bold"
-                onMouseEnter={() => setIsVisible(true)}
-                onMouseLeave={() => setIsVisible(false)}
-                onClick={() => setIsVisible(!isVisible)}
-                aria-label="Показати розрахунок"
-            >
-                (+)
-            </button>
-            {isVisible && (
-                <div className="absolute z-50 bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-ink text-white text-xs rounded-field whitespace-pre-line min-w-[200px] max-w-[300px]">
-                    <div className="text-left">{calculation}</div>
-                </div>
-            )}
-        </div>
-    );
-};
 
 // Функція для отримання початкових дат (за межами компонента для стабільності)
 const getDefaultDates = () => {
@@ -629,7 +603,7 @@ const TransactionsPage: React.FC = () => {
 
     // Виділення рядків і копіювання в буфер — текстом, як у таблиці (TSV), щоб вставлялось у Sheets/Excel/месенджер
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [copiedToast, setCopiedToast] = useState<string | null>(null);
+    const { toast: copiedToast, showToast, showError } = useCopyToast();
     const rowKey = (tx: Transaction) => `${tx.row ?? ''}:${tx.id || ''}:${tx.date}:${tx.amount}`;
     const toggleSelected = useCallback((key: string) => setSelectedIds(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; }), []);
     const allVisibleSelected = sortedTransactions.length > 0 && sortedTransactions.every(tx => selectedIds.has(rowKey(tx)));
@@ -637,12 +611,11 @@ const TransactionsPage: React.FC = () => {
     const handleCopy = useCallback(async () => {
         const rows = sortedTransactions.filter(tx => selectedIds.has(rowKey(tx)));
         if (!rows.length) return;
-        const headerLine = ['ID', 'Дата', 'Сума', 'Тип', 'Рахунок', 'Категорія', 'Опис', 'Контрагент', 'Проект', 'Звʼязок', 'Без 11%'].join('\t');
-        const lines = rows.map(tx => [tx.id || '', tx.date || '', tx.amount, tx.type, tx.account, tx.category, tx.description, tx.counterparty || '', tx.project || '', tx.link || '', tx.noTax ? 'TRUE' : ''].map(v => String(v ?? '').replace(/\t/g, ' ')).join('\t'));
-        try { await navigator.clipboard.writeText([headerLine, ...lines].join('\n')); setCopiedToast(`Скопійовано ${rows.length} ${rows.length === 1 ? 'рядок' : rows.length < 5 ? 'рядки' : 'рядків'}`); }
-        catch { setCopiedToast('Не вдалося скопіювати — дозволь доступ до буфера'); }
-        setTimeout(() => setCopiedToast(null), 2500);
-    }, [sortedTransactions, selectedIds]);
+        const header = ['ID', 'Дата', 'Сума', 'Тип', 'Рахунок', 'Категорія', 'Опис', 'Контрагент', 'Проект', 'Звʼязок', 'Без 11%'];
+        const tsvRows = rows.map(tx => [tx.id || '', tx.date || '', tx.amount, tx.type, tx.account, tx.category, tx.description, tx.counterparty || '', tx.project || '', tx.link || '', tx.noTax ? 'TRUE' : '']);
+        const { ok } = await copyRowsToClipboard(header, tsvRows);
+        if (ok) showToast(rows.length); else showError();
+    }, [sortedTransactions, selectedIds, showToast, showError]);
 
     // Справжній xlsx: OnlyOffice/Numbers відкривають HTML-таблицю з excel-mime як документ, не як таблицю
     const handleExportXls = useCallback(async () => {
@@ -692,10 +665,8 @@ const TransactionsPage: React.FC = () => {
     const periodLabel = `${formatDateShort(startDate, false)} – ${formatDateShort(endDate)}`;
     const resetLabel = [selectedType !== 'Всі' ? selectedType : null, selectedAccounts.length ? `рахунки ${selectedAccounts.length}` : null, selectedCategories.length ? `категорії ${selectedCategories.length}` : null, selectedCounterparties.length ? `контрагенти ${selectedCounterparties.length}` : null, selectedProjects.length ? `проєкти ${selectedProjects.length}` : null].filter(Boolean).join(', ') || 'немає';
     const showPairRows = selectedType === 'Всі' || selectedType === 'Перекази';
-    const transferWarningText = showPairRows ? [
-        pairs.unpaired.length > 0 ? `Непарних переказів: ${pairs.unpaired.length}` : null,
-        skippedRows.length > 0 ? `пропущено ${skippedRows.length} ${skippedRows.length === 1 ? 'рядок' : skippedRows.length < 5 ? 'рядки' : 'рядків'}` : null,
-    ].filter(Boolean).join(' · ') : '';
+    const transferWarningText = showPairRows && pairs.unpaired.length > 0 ? `Непарних переказів: ${pairs.unpaired.length}` : '';
+    const skippedLabel = `${skippedRows.length} ${skippedRows.length === 1 ? 'рядок' : skippedRows.length < 5 ? 'рядки' : 'рядків'}`;
     const typeOptions = ['Всі', 'Надходження', 'Витрата', 'Перекази'];
     const columns = [
         { key: 'id', label: 'ID', align: 'text-left' },
@@ -711,9 +682,14 @@ const TransactionsPage: React.FC = () => {
     const typeClasses = (tx: Transaction) => isOutgoing(tx) ? 'bg-tout-soft text-tout' : isIncoming(tx) ? 'bg-tin-soft text-tin' : tx.type === 'Витрата' ? 'bg-expense-soft text-expense' : 'bg-income-soft text-income';
     const amountClass = (tx: Transaction) => isOutgoing(tx) ? 'text-tout' : isIncoming(tx) ? 'text-tin' : tx.type === 'Витрата' ? 'text-expense' : 'text-income';
     const displayType = (tx: Transaction) => isOutgoing(tx) ? 'Переказ вихідний' : isIncoming(tx) ? 'Переказ вхідний' : tx.type;
-    const renderCheckbox = (checked: boolean, onChange: () => void, label: string) => (
-        <input type="checkbox" aria-label={label} checked={checked} onChange={onChange} className="h-4 w-4 rounded-[5px] border-[1.5px] border-line bg-panel accent-ink" />
-    );
+    // Рядок під вихідним переказом: кожен привʼязаний вхідний + різниця, або «ще не повернувся»
+    const pairRowContent = (tx: Transaction, linked: Transaction[], inSum: number, status: string | null) => linked.length === 0
+        ? <span className="text-expense">↳ вхідного зі звʼязком на {tx.id} нема — ще не повернувся</span>
+        : <span className="text-ink-2">
+            {linked.map(i => <span key={i.id || i.date || ''} className="mr-3">↳ {i.id} · {formatDateShort(i.date)} · {i.account} · +{formatNumber(i.amount)} ₴</span>)}
+            <span className={status === 'ok' ? 'text-income' : 'text-expense font-medium'}>різниця {formatNumber(tx.amount - inSum)} ₴ {status === 'ok' ? '✓' : '⚠ не 0 і не 11%'}</span>
+          </span>;
+    const renderCheckbox = (checked: boolean, onChange: () => void, label: string) => <Checkbox checked={checked} onChange={onChange} label={label} />;
     const filterList = (key: string, title: string, items: string[], selected: string[], onToggle: (item: string) => void, onToggleAll: () => void, empty: string) => {
         const allSelected = items.length > 0 && items.every(item => selected.includes(item));
         return (
@@ -759,7 +735,7 @@ const TransactionsPage: React.FC = () => {
                   <span className="text-ink-2">Фільтри</span><span className="font-medium">активних: {activeFilterCount}</span><ChevronDown />
               </button>
               <span className="flex-1" />
-              {hasActiveFilters && <button type="button" onClick={resetSelectionFilters} className="text-[13px] text-ink-2 underline underline-offset-[3px] hover:text-ink">Скинути</button>}
+              {hasActiveFilters && <button type="button" onClick={resetSelectionFilters} title="Прибрати всі обрані рахунки, категорії, контрагентів, проєкти й тип" className="text-[13px] text-ink-2 underline underline-offset-[3px] hover:text-ink">Скинути</button>}
           </div>
 
           {isFiltersPanelOpen && (
@@ -788,7 +764,7 @@ const TransactionsPage: React.FC = () => {
                                   const isActive = isMonthActive(year, month);
                                   const isSelecting = selectedMonthRange.start === `${year}-${month}`;
                                   return (
-                                      <button key={`${year}-${month}`} type="button" onClick={() => handleMonthClick(year, month)} className={`h-[30px] px-3 rounded-full text-xs font-medium border ${isActive ? 'bg-ink text-white border-ink' : 'bg-transparent text-ink-2 border-line hover:border-ink-3'} ${isSelecting ? 'ring-2 ring-ink ring-offset-1' : ''}`}>
+                                      <button key={`${year}-${month}`} type="button" title={`${MONTH_NAMES_SHORT[month]} ${year}`} onClick={() => handleMonthClick(year, month)} className={`h-[30px] px-3 rounded-full text-xs font-medium border ${isActive ? 'bg-ink text-white border-ink' : 'bg-transparent text-ink-2 border-line hover:border-ink-3'} ${isSelecting ? 'ring-2 ring-ink ring-offset-1' : ''}`}>
                                           {MONTH_NAMES_SHORT[month]}
                                       </button>
                                   );
@@ -823,7 +799,7 @@ const TransactionsPage: React.FC = () => {
 
           <div className="bg-panel border border-line rounded-card px-5 py-[18px]">
               <button type="button" className="w-full flex justify-between items-center mb-2.5" onClick={() => setIsChartDynamicsOpen(!isChartDynamicsOpen)}>
-                  <span className="font-display text-sm sm:text-[15px] font-semibold">Динаміка за {parseDate(endDate)?.getUTCFullYear() || new Date().getFullYear()}</span>
+                  <span className="font-display text-sm sm:text-[15px] font-semibold">Динаміка за період</span>
                   {!isChartDynamicsOpen && <span className="inline-flex items-center gap-1 text-[13px] text-ink-2">згорнуто <ChevronDown /></span>}
               </button>
               {isChartDynamicsOpen && processedData.barChartData.length > 0 ? (
@@ -833,6 +809,7 @@ const TransactionsPage: React.FC = () => {
                           <XAxis dataKey="name" tick={{ fill: T.ink2, fontSize: 11 }} />
                           <YAxis tickFormatter={(value) => Math.round(value).toLocaleString('uk-UA')} tick={{ fill: T.ink2, fontSize: 11 }} width={62} />
                           <Tooltip content={<CustomTooltip />} contentStyle={chartTooltipStyle} wrapperStyle={{ zIndex: 50 }} />
+                          <Legend wrapperStyle={{ fontSize: 12, color: T.ink2 }} iconType="circle" />
                           <Bar dataKey="income" fill={T.income} name="Надходження" radius={[2, 2, 0, 0]} />
                           <Bar dataKey="expense" fill={T.expense} name="Витрати" radius={[2, 2, 0, 0]} />
                           {processedData.shouldShowBalance && <Bar dataKey="balance" fill={T.ink3} name="Баланс (кінець міс.)" radius={[2, 2, 0, 0]} />}
@@ -849,8 +826,8 @@ const TransactionsPage: React.FC = () => {
               {isChartDistributionOpen && (categoryDistribution.incomeData.length > 0 || categoryDistribution.expenseData.length > 0) ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
                       {[
-                          { title: 'Надходження', data: categoryDistribution.incomeData, color: 'text-income' },
-                          { title: 'Витрати', data: categoryDistribution.expenseData, color: 'text-expense' },
+                          { title: 'Надходження', data: categoryDistribution.incomeData, color: 'text-income', empty: 'Немає надходжень за обраний період' },
+                          { title: 'Витрати', data: categoryDistribution.expenseData, color: 'text-expense', empty: 'Немає витрат за обраний період' },
                       ].map(group => (
                           <div key={group.title}>
                               <h3 className={`font-display text-[13px] font-semibold mb-2 ${group.color}`}>{group.title}</h3>
@@ -874,7 +851,7 @@ const TransactionsPage: React.FC = () => {
                                           ))}
                                       </div>
                                   </>
-                              ) : <p className="text-ink-2 text-sm py-10">Немає даних за обраний період</p>}
+                              ) : <p className="text-ink-2 text-sm py-10">{group.empty}</p>}
                           </div>
                       ))}
                   </div>
@@ -885,13 +862,17 @@ const TransactionsPage: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-2.5">
                   <span className="font-display text-sm sm:text-[15px] font-semibold">Транзакції за період</span>
                   <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                      {transferWarningText && <span className="text-xs text-expense" title={[pairs.unpaired.join(', '), skippedRows.join(', ')].filter(Boolean).join(' · ')}>⚠ {transferWarningText}</span>}
-                      {showPairRows && pairs.noId > 0 && <span className="text-xs text-danger">без ID: {pairs.noId}</span>}
+                      {transferWarningText && <span className="text-xs text-expense" title={pairs.unpaired.join(', ')}>⚠ {transferWarningText}</span>}
+                      {pairs.broken.length > 0 && <span className="text-xs text-danger" title={pairs.broken.join(', ')}>Битих звʼязків: {pairs.broken.length} — посилання на неіснуючий або не вихідний ID ({pairs.broken.slice(0, 8).join(', ')}{pairs.broken.length > 8 ? '…' : ''})</span>}
+                      {pairs.noId > 0 && <span className="text-xs text-danger" title="Рядок без ID — запусти fillMissingIds у скрипті">без ID: {pairs.noId}</span>}
                       <button type="button" onClick={handleCopy} disabled={selectedIds.size === 0} className="inline-flex items-center px-3.5 py-[7px] rounded-full bg-ink text-white text-[13px] font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed" title="Скопіювати виділені рядки текстом, як у таблиці">Скопіювати ({selectedIds.size})</button>
                       {copiedToast && <span className="text-income text-sm">{copiedToast}</span>}
                       <button type="button" onClick={handleExportXls} disabled={sortedTransactions.length === 0} className="inline-flex items-center px-3.5 py-[7px] rounded-full border border-ink text-ink bg-panel text-[13px] font-medium hover:bg-mute disabled:opacity-40 disabled:cursor-not-allowed" title="Завантажити транзакції звіту у XLSX">XLSX</button>
                   </div>
               </div>
+              {skippedRows.length > 0 && (
+                  <p className="text-xs text-expense mb-2.5" title="Рядок без дати, рахунку, категорії або з типом не «Надходження»/«Витрата» у звіт не потрапляє">Пропущено {skippedLabel} таблиці з неповними даними: {skippedRows.slice(0, 20).join(', ')}{skippedRows.length > 20 ? '…' : ''}</p>
+              )}
 
               <div className="sm:hidden">
                   {sortedTransactions.length === 0 ? (
@@ -918,8 +899,8 @@ const TransactionsPage: React.FC = () => {
                                   </div>
                               </div>
                               {showPairRows && isOutgoing(tx) && (
-                                  <div className={`text-xs border-b border-line pb-2 ${status === 'ok' ? 'text-income' : 'text-expense'}`}>
-                                      {linked.length === 0 ? '↳ ще не повернувся' : <>↳ {linked.map(i => i.id).filter(Boolean).join(', ')} · різниця {formatNumber(tx.amount - inSum)} {status === 'ok' ? '✓' : '⚠ не 0 і не 11%'}</>}
+                                  <div className="text-xs border-b border-line pb-2">
+                                      {pairRowContent(tx, linked, inSum, status)}
                                   </div>
                               )}
                           </React.Fragment>
@@ -951,7 +932,7 @@ const TransactionsPage: React.FC = () => {
                                   <React.Fragment key={key}>
                                       <tr className={selectedIds.has(key) ? 'bg-mute' : ''}>
                                           <td className="px-2.5 py-2.5 border-b border-line align-top">{renderCheckbox(selectedIds.has(key), () => toggleSelected(key), `Виділити ${tx.id || ''}`)}</td>
-                                          <td className="px-2.5 py-2.5 border-b border-line align-top text-xs text-ink-2 tabular-nums whitespace-nowrap">{tx.id || <span className="text-danger" title="Рядок без ID — запусти fillMissingIds">без ID</span>}{tx.link && <span className="block text-tin" title="Привʼязано до вихідного переказу">↩ {tx.link}</span>}{isIncoming(tx) && !tx.link && <span className="block text-expense" title="Вхідний переказ без звʼязку з вихідним">⚠ без звʼязку</span>}</td>
+                                          <td className="px-2.5 py-2.5 border-b border-line align-top text-[11px] text-ink-3 tabular-nums whitespace-nowrap">{tx.id || <span className="text-danger" title="Рядок без ID — запусти fillMissingIds">без ID</span>}{tx.link && <span className="block text-tin" title="Привʼязано до вихідного переказу">↩ {tx.link}</span>}{isIncoming(tx) && !tx.link && <span className="block text-expense" title="Вхідний переказ без звʼязку з вихідним">⚠ без звʼязку</span>}</td>
                                           <td className="px-2.5 py-2.5 border-b border-line align-top tabular-nums whitespace-nowrap">{formatDateShort(tx.date)}</td>
                                           <td className="px-2.5 py-2.5 border-b border-line align-top"><span className={`inline-block px-[9px] py-[3px] rounded-full text-[11.5px] font-medium whitespace-nowrap ${typeClasses(tx)}`}>{displayType(tx)}</span></td>
                                           <td className={`px-2.5 py-2.5 border-b border-line align-top text-right whitespace-nowrap font-semibold tabular-nums ${amountClass(tx)}`}>{formatMoney(signedAmount(tx))} ₴{tx.noTax && <span className="ml-1 text-xs text-ink-3" title="Без 11%">∅</span>}</td>
@@ -964,8 +945,8 @@ const TransactionsPage: React.FC = () => {
                                       {showPairRows && isOutgoing(tx) && (
                                           <tr>
                                               <td className="px-2.5 py-0 border-b border-line"></td>
-                                              <td colSpan={9} className={`px-2.5 pb-2 pt-0 border-b border-line text-xs ${status === 'ok' ? 'text-income' : 'text-expense'}`}>
-                                                  {linked.length === 0 ? '↳ ще не повернувся' : <>↳ {linked.map(i => i.id).filter(Boolean).join(', ')} · різниця {formatNumber(tx.amount - inSum)} {status === 'ok' ? '✓' : '⚠ не 0 і не 11%'}</>}
+                                              <td colSpan={9} className="px-2.5 pb-2 pt-0 border-b border-line text-xs">
+                                                  {pairRowContent(tx, linked, inSum, status)}
                                               </td>
                                           </tr>
                                       )}

@@ -102,7 +102,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     <html lang="uk">
       <head />
       <body className={`${golos.variable} ${unbounded.variable} font-sans bg-paper text-ink`}>
-        <header className="md:sticky md:top-0 z-20 bg-paper">
+        <header className="sticky top-0 z-20 bg-paper">
           {/* design-md: fintracker Журнал v1 */}
           <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-12">
             <div className="flex items-center justify-between gap-4 pt-4 md:pt-5 pb-2">
@@ -125,7 +125,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 >
                   {headerIsLoading && data ? 'Оновлюю...' : 'Оновити'}
                 </button>
-                <a href="https://docs.google.com/spreadsheets/d/1jl54qnar1R0nDdAIxJF6uN4eMPXacOfqasNAuwm8BNk/edit" target="_blank" rel="noopener noreferrer" className="hidden md:inline text-[13px] text-ink-2 underline underline-offset-[3px] hover:text-ink whitespace-nowrap">
+                <a href="https://docs.google.com/spreadsheets/d/1jl54qnar1R0nDdAIxJF6uN4eMPXacOfqasNAuwm8BNk/edit" target="_blank" rel="noopener noreferrer" className="text-[13px] text-ink-2 underline underline-offset-[3px] hover:text-ink whitespace-nowrap">
                   Джерело
                 </a>
               </div>
@@ -154,7 +154,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
                     <button type="button" onClick={() => setRunwayOpen(o => !o)} className="text-left" title="Налаштувати, які витрати входять у ранвей">
                       <div className="text-[11px] uppercase tracking-[.08em] text-ink-2">Ранвей</div>
                       <div className="font-display text-[22px] md:text-[30px] font-bold leading-[1.1] whitespace-nowrap">
-                        {runwayValue} <span className="text-[13px] md:text-[18px] font-medium text-ink-2 whitespace-normal">{runwaySuffix}</span>
+                        {runwayValue} <span className="text-[13px] md:text-[18px] font-medium text-ink-2 whitespace-normal" title={runwayExcluded.length > 0 ? `Без: ${runwayExcluded.join(', ')}` : undefined}>{runwaySuffix}</span>
                       </div>
                     </button>
                     {runwayOpen && (
