@@ -4,7 +4,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { parseDate, VALID_TYPES, signedAmount } from '@/lib/tx';
 import { usePersistedFilters } from '@/hooks/usePersistedState';
 import { useSheetData } from '@/hooks/useSheetData';
-import { Button, SectionCard, SortArrow, StatTile, TooltipWithCalculation, TypeChip } from '@/components/ui';
+import { Button, Checkbox, SectionCard, SortArrow, StatTile, TooltipWithCalculation, TypeChip } from '@/components/ui';
+import { copyRowsToClipboard, useCopyToast } from '@/lib/copyRows';
 
 interface Transaction {
   row?: number;
@@ -25,12 +26,11 @@ interface ProjectWithBonuses {
   name: string;
   bonusFromSum: number | null;
   bonusFromBalance: number | null;
-  status: string;
+  status: string; // 'live', 'closed', або пусто
 }
 
 interface ProjectsPersistedFilters {
   selectedProject: string;
-  selectedProjects: string[];
   sortColumn: string;
   sortDirection: 'asc' | 'desc';
 }
@@ -69,17 +69,11 @@ const ProjectsPage: React.FC = () => {
 
   const [filters, updateFilters] = usePersistedFilters<ProjectsPersistedFilters>(
     'finance-tracker-projects-filters',
-    { selectedProject: '', selectedProjects: [], sortColumn: 'date', sortDirection: 'desc' }
+    { selectedProject: '', sortColumn: 'date', sortDirection: 'desc' }
   );
 
-  const { selectedProject, selectedProjects, sortColumn, sortDirection } = filters;
-  const setSelectedProject = useCallback((value: string) => updateFilters({ selectedProject: value, selectedProjects: value ? [value] : [] }), [updateFilters]);
-  const setSelectedProjects = useCallback((value: string[] | ((prev: string[]) => string[])) => {
-    updateFilters(prev => {
-      const next = typeof value === 'function' ? value(prev.selectedProjects || []) : value;
-      return { selectedProjects: next, selectedProject: next[0] || '' };
-    });
-  }, [updateFilters]);
+  const { selectedProject, sortColumn, sortDirection } = filters;
+  const setSelectedProject = useCallback((value: string) => updateFilters({ selectedProject: value }), [updateFilters]);
   const setSortColumn = useCallback((value: string) => updateFilters({ sortColumn: value }), [updateFilters]);
   const setSortDirection = useCallback((value: 'asc' | 'desc') => updateFilters({ sortDirection: value }), [updateFilters]);
 
@@ -112,16 +106,16 @@ const ProjectsPage: React.FC = () => {
         : [];
       setProjectsWithBonuses(projectsData);
 
+      // Проект за замовчуванням лише якщо збереженого нема або він більше не існує в списку
       if (projectsData.length > 0) {
-        const validSelected = (selectedProjects || []).filter(project => projectsData.some(p => p.name === project));
-        const migratedProject = selectedProject && projectsData.some(p => p.name === selectedProject) ? selectedProject : '';
-        if (validSelected.length === 0) setSelectedProjects([migratedProject || projectsData[0].name]);
-        else if (validSelected.length !== selectedProjects.length) setSelectedProjects(validSelected);
+        const savedProject = filters.selectedProject;
+        const projectExists = projectsData.some(p => p.name === savedProject);
+        if (!savedProject || !projectExists) setSelectedProject(projectsData[0].name);
       }
     } catch (err) {
       console.error('Failed to process sheet data:', err);
     }
-  }, [data, selectedProject, selectedProjects, setSelectedProjects]);
+  }, [data, filters.selectedProject, setSelectedProject]);
 
   const handleSort = useCallback((column: string) => {
     if (sortColumn === column) setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
@@ -131,12 +125,8 @@ const ProjectsPage: React.FC = () => {
     }
   }, [sortColumn, sortDirection, setSortColumn, setSortDirection]);
 
-  const handleProjectToggle = useCallback((project: string) => {
-    setSelectedProjects(prev => prev.includes(project) ? prev.filter(p => p !== project) : [...prev, project]);
-  }, [setSelectedProjects]);
-
   const projectData = useMemo(() => {
-    if (!selectedProjects.length) {
+    if (!selectedProject) {
       return {
         transactions: [],
         totalIncome: 0,
@@ -155,41 +145,25 @@ const ProjectsPage: React.FC = () => {
       };
     }
 
-    const projectSet = new Set(selectedProjects);
-    const projectTransactions = allTransactions.filter(tx => tx.project && projectSet.has(tx.project));
+    const currentProject = projectsWithBonuses.find(p => p.name === selectedProject) || null;
+    const projectTransactions = allTransactions.filter(tx => tx.project === selectedProject);
+
     const paidBonusesTransactions = projectTransactions.filter(tx => tx.type === 'Витрата' && tx.category === 'Бонуси і премії');
     const paidBonuses = paidBonusesTransactions.reduce((sum, tx) => sum + tx.amount, 0);
+
     const totalIncome = projectTransactions.filter(tx => tx.type === 'Надходження').reduce((sum, tx) => sum + tx.amount, 0);
     const totalExpenses = projectTransactions.filter(tx => tx.type === 'Витрата' && tx.category !== 'Бонуси і премії').reduce((sum, tx) => sum + tx.amount, 0);
     const taxes = totalIncome * 0.11;
 
-    let bonusFromSum = 0;
-    let bonusFromBalance = 0;
-    let weightedSumPercent = 0;
-    let weightedBalancePercent = 0;
-    let baseForBalanceBonus = 0;
+    const bonusFromSumPercent = currentProject?.bonusFromSum ?? 0;
+    const bonusFromSum = totalIncome * (bonusFromSumPercent / 100);
 
-    selectedProjects.forEach(projectName => {
-      const currentProject = projectsWithBonuses.find(p => p.name === projectName) || null;
-      const txs = allTransactions.filter(tx => tx.project === projectName);
-      const income = txs.filter(tx => tx.type === 'Надходження').reduce((sum, tx) => sum + tx.amount, 0);
-      const expenses = txs.filter(tx => tx.type === 'Витрата' && tx.category !== 'Бонуси і премії').reduce((sum, tx) => sum + tx.amount, 0);
-      const projectTaxes = income * 0.11;
-      const sumPercent = currentProject?.bonusFromSum ?? 0;
-      const balancePercent = currentProject?.bonusFromBalance ?? 0;
-      const sumBonus = income * (sumPercent / 100);
-      const balanceBase = income - expenses - projectTaxes - sumBonus;
-      const balanceBonus = balanceBase > 0 ? balanceBase * (balancePercent / 100) : 0;
-      bonusFromSum += sumBonus;
-      bonusFromBalance += balanceBonus;
-      baseForBalanceBonus += balanceBase;
-      weightedSumPercent += sumPercent;
-      weightedBalancePercent += balancePercent;
-    });
+    const bonusFromBalancePercent = currentProject?.bonusFromBalance ?? 0;
+    const baseForBalanceBonus = totalIncome - totalExpenses - taxes - bonusFromSum;
+    const bonusFromBalance = baseForBalanceBonus > 0 ? baseForBalanceBonus * (bonusFromBalancePercent / 100) : 0;
 
     const totalBonuses = bonusFromSum + bonusFromBalance;
     const balance = totalIncome - totalExpenses - taxes - totalBonuses;
-    const currentProject = selectedProjects.length === 1 ? projectsWithBonuses.find(p => p.name === selectedProjects[0]) || null : null;
 
     return {
       transactions: projectTransactions,
@@ -197,9 +171,9 @@ const ProjectsPage: React.FC = () => {
       totalExpenses,
       taxes,
       bonusFromSum,
-      bonusFromSumPercent: selectedProjects.length ? weightedSumPercent / selectedProjects.length : 0,
+      bonusFromSumPercent,
       bonusFromBalance,
-      bonusFromBalancePercent: selectedProjects.length ? weightedBalancePercent / selectedProjects.length : 0,
+      bonusFromBalancePercent,
       baseForBalanceBonus,
       totalBonuses,
       paidBonuses,
@@ -207,7 +181,7 @@ const ProjectsPage: React.FC = () => {
       balance,
       currentProject
     };
-  }, [allTransactions, selectedProjects, projectsWithBonuses]);
+  }, [allTransactions, selectedProject, projectsWithBonuses]);
 
   const calculations = useMemo(() => {
     const { totalIncome, totalExpenses, taxes, bonusFromSum, bonusFromSumPercent, bonusFromBalance, bonusFromBalancePercent, baseForBalanceBonus, totalBonuses, paidBonuses, paidBonusesTransactions, balance } = projectData;
@@ -263,6 +237,24 @@ const ProjectsPage: React.FC = () => {
     });
   }, [projectData.transactions, sortColumn, sortDirection]);
 
+  // Виділення рядків і «Скопіювати (N)» — той самий хелпер, що на Балансі
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const { toast: copiedToast, showToast, showError } = useCopyToast();
+  const rowKey = (tx: Transaction) => `${tx.row ?? ''}:${tx.id || ''}:${tx.date}:${tx.amount}`;
+  const toggleSelected = useCallback((key: string) => setSelectedIds(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; }), []);
+  const allVisibleSelected = sortedTransactions.length > 0 && sortedTransactions.every(tx => selectedIds.has(rowKey(tx)));
+  const toggleAllVisible = useCallback(() => setSelectedIds(prev => { if (sortedTransactions.every(tx => prev.has(rowKey(tx)))) return new Set(); return new Set(sortedTransactions.map(rowKey)); }), [sortedTransactions]);
+  const handleCopy = useCallback(async () => {
+    const rows = sortedTransactions.filter(tx => selectedIds.has(rowKey(tx)));
+    if (!rows.length) return;
+    const header = ['ID', 'Дата', 'Сума', 'Тип', 'Рахунок', 'Категорія', 'Опис', 'Контрагент', 'Проект', 'Звʼязок', 'Без 11%'];
+    const tsvRows = rows.map(tx => [tx.id || '', tx.date || '', tx.amount, tx.type, tx.account, tx.category, tx.description, tx.counterparty || '', tx.project || '', tx.link || '', tx.noTax ? 'TRUE' : '']);
+    const { ok } = await copyRowsToClipboard(header, tsvRows);
+    if (ok) showToast(rows.length); else showError();
+  }, [sortedTransactions, selectedIds, showToast, showError]);
+
+  useEffect(() => { setSelectedIds(new Set()); }, [selectedProject]);
+
   const handleExportXls = useCallback(async () => {
     const writeXlsxFile = (await import('write-excel-file/browser')).default;
     const header = (value: string) => ({ value, fontWeight: 'bold' as const });
@@ -274,12 +266,14 @@ const ProjectsPage: React.FC = () => {
       { header: header('Опис'), width: 40, cell: (tx: Transaction) => ({ type: String, value: tx.description || '' }) },
       { header: header('Категорія'), width: 24, cell: (tx: Transaction) => ({ type: String, value: tx.category || '' }) },
       { header: header('Рахунок'), width: 12, cell: (tx: Transaction) => ({ type: String, value: tx.account || '' }) },
+      { header: header('Контрагент'), width: 18, cell: (tx: Transaction) => ({ type: String, value: tx.counterparty || '' }) },
     ];
     await writeXlsxFile(sortedTransactions, { columns, stickyRowsCount: 1 }).toFile(`projects-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }, [sortedTransactions]);
 
-  const title = selectedProjects.length === 1 ? selectedProjects[0] : `${selectedProjects.length} проєктів`;
-  const mobileProject = projectsWithBonuses.find(p => p.name === selectedProjects[0]);
+  const mobileProject = projectsWithBonuses.find(p => p.name === selectedProject);
+  // Під «Бонуси нараховані» — лише ненульові частини
+  const bonusPartsLabel = [projectData.bonusFromSum > 0 ? `з суми ${formatNumber(projectData.bonusFromSum)}` : null, projectData.bonusFromBalance > 0 ? `з балансу ${formatNumber(projectData.bonusFromBalance)}` : null].filter(Boolean).join(' · ');
   const columns = [
     { key: 'id', label: 'ID', align: 'text-left' },
     { key: 'date', label: 'Дата', align: 'text-left' },
@@ -288,6 +282,7 @@ const ProjectsPage: React.FC = () => {
     { key: 'description', label: 'Опис', align: 'text-left' },
     { key: 'category', label: 'Категорія', align: 'text-left' },
     { key: 'account', label: 'Рахунок', align: 'text-left' },
+    { key: 'counterparty', label: 'Контрагент', align: 'text-left' },
   ];
 
   return (
@@ -297,16 +292,25 @@ const ProjectsPage: React.FC = () => {
       {error && !data && <p className="text-danger text-sm text-center py-10">Помилка завантаження звіту: {error}</p>}
       {data && (
         <>
-          <SectionCard title="Оберіть проєкт" aside={<span className="hidden sm:inline text-xs text-ink-2">можна кілька</span>}>
+          <SectionCard title="Оберіть проєкт">
             {isLoading ? <p className="text-xs text-ink-3">Завантаження проектів...</p> : projectsWithBonuses.length === 0 ? <p className="text-xs text-ink-3">Проектів не знайдено</p> : (
               <>
                 <div className="hidden sm:flex gap-1.5 flex-wrap">
                   {projectsWithBonuses.map(project => {
-                    const active = selectedProjects.includes(project.name);
+                    const active = selectedProject === project.name;
                     const live = project.status === 'live';
+                    const chipClass = active
+                      ? 'bg-ink text-white border-ink'
+                      : live
+                        ? 'bg-income-soft text-income border border-income/30'
+                        : 'bg-mute text-ink-2 border border-line';
+                    // Без статусу в довіднику — виглядає як завершений, але без крапки
+                    const dotClass = !project.status ? '' : active
+                      ? (live ? 'bg-income' : 'border border-white/60')
+                      : (live ? 'bg-income' : 'border border-ink-3');
                     return (
-                      <button key={project.name} type="button" onClick={() => handleProjectToggle(project.name)} className={`inline-flex items-center gap-2 h-[34px] px-3.5 rounded-full text-[13px] font-medium border max-w-full ${active ? 'bg-ink text-white border-ink' : 'bg-panel text-ink border-line hover:border-ink-3'}`}>
-                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${live ? 'bg-income border border-income' : 'border border-ink-2'}`} />
+                      <button key={project.name} type="button" onClick={() => setSelectedProject(project.name)} className={`inline-flex items-center gap-2 h-[34px] px-3.5 rounded-full text-[13px] font-medium max-w-full ${chipClass}`}>
+                        {project.status && <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotClass}`} />}
                         <span className="truncate">{project.name}</span>
                         <span className={`text-[11px] whitespace-nowrap ${active ? 'text-white/70' : 'text-ink-2'}`}>{bonusLabel(project)}</span>
                       </button>
@@ -314,56 +318,69 @@ const ProjectsPage: React.FC = () => {
                   })}
                 </div>
                 <div className="sm:hidden">
-                  <select value={selectedProjects[0] || ''} onChange={(e) => setSelectedProject(e.target.value)} className="w-full rounded-full border border-line px-3.5 py-2.5 bg-panel text-[13px] font-medium">
+                  <select value={selectedProject} onChange={(e) => setSelectedProject(e.target.value)} className="w-full rounded-full border border-line px-3.5 py-2.5 bg-panel text-[13px] font-medium">
                     {projectsWithBonuses.map(project => <option key={project.name} value={project.name}>{project.name} · {bonusLabel(project)}</option>)}
                   </select>
-                  <div className="text-[11px] text-ink-2 mt-1">{selectedProjects.length} з {projectsWithBonuses.length} проєктів · {projectStatusLabel(mobileProject)}</div>
+                  <div className="text-[11px] text-ink-2 mt-1">{projectStatusLabel(mobileProject)}</div>
                 </div>
                 <div className="hidden sm:flex gap-4 text-xs text-ink-2 mt-2">
                   <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-income" />активний</span>
-                  <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full border border-ink-2" />завершений</span>
+                  <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full border border-ink-3" />завершений</span>
                   <span>· у чипі — відсоток бонусу</span>
                 </div>
               </>
             )}
           </SectionCard>
 
-          {selectedProjects.length > 0 && (
-            <SectionCard title={`Баланс проєкту: ${title}`} aside={<span className="text-xs text-ink-2">(+) — формула на ховері</span>}>
+          {selectedProject && (
+            <SectionCard title={`Баланс проєкту: ${selectedProject}`} aside={<span className="text-xs text-ink-2">(+) — формула на ховері</span>}>
               {projectData.transactions.length > 0 ? (
                 <div className="grid grid-cols-2 sm:flex gap-3">
                   <div className="sm:flex-1 min-w-0"><StatTile label="Надходження" value={`${formatMoney(projectData.totalIncome)} ₴`} tone="income" /></div>
                   <div className="sm:flex-1 min-w-0"><StatTile label="Витрати" value={`${formatMoney(-projectData.totalExpenses, false)} ₴`} tone="expense" /></div>
                   <div className="sm:flex-1 min-w-0"><StatTile label="Податки та комісії посередників 11%" value={`${formatNumber(projectData.taxes)} ₴`} calculation={calculations.taxes} /></div>
-                  <div className="sm:flex-1 min-w-0"><StatTile label="Бонуси нараховані" value={`${formatNumber(projectData.totalBonuses)} ₴`} suffix={<div className="text-[11px] text-ink-2 font-normal mt-0.5">з суми {formatNumber(projectData.bonusFromSum)} · з балансу {formatNumber(projectData.bonusFromBalance)}</div>} calculation={calculations.totalBonuses} /></div>
+                  <div className="sm:flex-1 min-w-0"><StatTile label="Бонуси нараховані" value={`${formatNumber(projectData.totalBonuses)} ₴`} suffix={bonusPartsLabel && <div className="text-[11px] text-ink-2 font-normal mt-0.5">{bonusPartsLabel}</div>} calculation={calculations.totalBonuses} /></div>
                   <div className="sm:flex-1 min-w-0"><StatTile label="Бонуси виплачені" value={`${formatNumber(projectData.paidBonuses)} ₴`} calculation={calculations.paidBonuses} /></div>
-                  <div className="sm:flex-1 min-w-0"><StatTile label="Баланс проєкту" value={`${formatNumber(projectData.balance)} ₴`} tone="mute" calculation={calculations.balance} /></div>
+                  <div className="sm:flex-1 min-w-0"><StatTile label="Баланс проєкту" value={<span className={projectData.balance < 0 ? 'text-tout' : ''}>{formatNumber(projectData.balance)} ₴</span>} tone="mute" calculation={calculations.balance} /></div>
                 </div>
               ) : <p className="text-center text-ink-2 py-10">Немає транзакцій для цього проекту</p>}
             </SectionCard>
           )}
 
-          {selectedProjects.length > 0 && (
-            <SectionCard title="Транзакції проєкту" aside={<Button onClick={handleExportXls} disabled={sortedTransactions.length === 0}>XLSX</Button>}>
+          {selectedProject && (
+            <SectionCard title="Транзакції проєкту" aside={
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={handleCopy} disabled={selectedIds.size === 0} variant="primary">Скопіювати ({selectedIds.size})</Button>
+                {copiedToast && <span className="text-income text-sm">{copiedToast}</span>}
+                <Button onClick={handleExportXls} disabled={sortedTransactions.length === 0}>XLSX</Button>
+              </div>
+            }>
               <div className="sm:hidden">
-                {sortedTransactions.length === 0 ? <div className="py-4 text-center text-ink-2">Транзакцій для цього проекту не знайдено</div> : sortedTransactions.map((tx, index) => (
-                  <div key={`${tx.id || ''}-${tx.date}-${index}-${tx.amount}`} className="flex flex-col gap-1 py-2.5 border-b border-line">
-                    <div className="flex justify-between items-baseline gap-2">
-                      <span className="text-xs text-ink-2 tabular-nums truncate">{formatDateShort(tx.date)} · {tx.account}</span>
-                      <span className={`text-[15px] font-semibold tabular-nums whitespace-nowrap ${amountClass(tx)}`}>{tx.type === 'Витрата' ? '−' : '+'} {formatNumber(tx.amount)}</span>
+                {sortedTransactions.length === 0 ? <div className="py-4 text-center text-ink-2">Транзакцій для цього проекту не знайдено</div> : sortedTransactions.map((tx, index) => {
+                  const key = rowKey(tx);
+                  return (
+                    <div key={`${tx.id || ''}-${tx.date}-${index}-${tx.amount}`} className={`flex gap-2.5 py-2.5 border-b border-line ${selectedIds.has(key) ? 'bg-mute -mx-4 px-4' : ''}`}>
+                      <div className="pt-0.5"><Checkbox checked={selectedIds.has(key)} onChange={() => toggleSelected(key)} label={`Виділити ${tx.id || ''}`} /></div>
+                      <div className="flex-1 min-w-0 flex flex-col gap-1">
+                        <div className="flex justify-between items-baseline gap-2">
+                          <span className="text-xs text-ink-2 tabular-nums truncate">{formatDateShort(tx.date)} · {tx.account}</span>
+                          <span className={`text-[15px] font-semibold tabular-nums whitespace-nowrap ${amountClass(tx)}`}>{tx.type === 'Витрата' ? '−' : '+'} {formatNumber(tx.amount)}</span>
+                        </div>
+                        <div className="text-sm">{tx.description}</div>
+                        <div className="flex justify-between items-center gap-2">
+                          <span className="text-xs text-ink-2 truncate">{tx.category}{tx.counterparty ? ` · ${tx.counterparty}` : ''}</span>
+                          <TypeChip tx={tx} />
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-sm">{tx.description}</div>
-                    <div className="flex justify-between items-center gap-2">
-                      <span className="text-xs text-ink-2 truncate">{tx.category}</span>
-                      <TypeChip tx={tx} />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="hidden sm:block overflow-x-auto">
                 <table className="w-full border-collapse text-[13.5px]">
                   <thead>
                     <tr>
+                      <th className="px-2.5 py-2 text-left border-b border-line w-8"><Checkbox checked={allVisibleSelected} onChange={toggleAllVisible} label="Виділити всі" /></th>
                       {columns.map(col => (
                         <th key={col.key} className={`px-2.5 py-2 border-b border-line text-[11px] uppercase tracking-[.06em] font-medium cursor-pointer select-none whitespace-nowrap ${col.align} ${sortColumn === col.key ? 'text-ink' : 'text-ink-2'}`} onClick={() => handleSort(col.key)}>
                           {col.label}{sortColumn === col.key && <SortArrow direction={sortDirection} />}
@@ -373,44 +390,59 @@ const ProjectsPage: React.FC = () => {
                   </thead>
                   <tbody>
                     {sortedTransactions.length === 0 ? (
-                      <tr><td colSpan={7} className="py-4 text-center text-ink-2">Транзакцій для цього проекту не знайдено</td></tr>
-                    ) : sortedTransactions.map((tx, index) => (
-                      <tr key={`${tx.id || ''}-${tx.date}-${index}-${tx.amount}`}>
-                        <td className="px-2.5 py-2.5 border-b border-line align-top text-xs text-ink-2 tabular-nums whitespace-nowrap">{tx.id || 'без ID'}</td>
-                        <td className="px-2.5 py-2.5 border-b border-line align-top tabular-nums whitespace-nowrap">{formatDateShort(tx.date)}</td>
-                        <td className="px-2.5 py-2.5 border-b border-line align-top"><TypeChip tx={tx} /></td>
-                        <td className={`px-2.5 py-2.5 border-b border-line align-top text-right whitespace-nowrap font-semibold tabular-nums ${amountClass(tx)}`}>{tx.type === 'Витрата' ? '−' : '+'} {formatNumber(tx.amount)} ₴</td>
-                        <td className="px-2.5 py-2.5 border-b border-line align-top min-w-[220px]">{tx.description}</td>
-                        <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.category}</td>
-                        <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
-                      </tr>
-                    ))}
+                      <tr><td colSpan={9} className="py-4 text-center text-ink-2">Транзакцій для цього проекту не знайдено</td></tr>
+                    ) : sortedTransactions.map((tx, index) => {
+                      const key = rowKey(tx);
+                      return (
+                        <tr key={`${tx.id || ''}-${tx.date}-${index}-${tx.amount}`} className={selectedIds.has(key) ? 'bg-mute' : ''}>
+                          <td className="px-2.5 py-2.5 border-b border-line align-top"><Checkbox checked={selectedIds.has(key)} onChange={() => toggleSelected(key)} label={`Виділити ${tx.id || ''}`} /></td>
+                          <td className="px-2.5 py-2.5 border-b border-line align-top text-[11px] text-ink-3 tabular-nums whitespace-nowrap">{tx.id || 'без ID'}</td>
+                          <td className="px-2.5 py-2.5 border-b border-line align-top tabular-nums whitespace-nowrap">{formatDateShort(tx.date)}</td>
+                          <td className="px-2.5 py-2.5 border-b border-line align-top"><TypeChip tx={tx} /></td>
+                          <td className={`px-2.5 py-2.5 border-b border-line align-top text-right whitespace-nowrap font-semibold tabular-nums ${amountClass(tx)}`}>{tx.type === 'Витрата' ? '−' : '+'} {formatNumber(tx.amount)} ₴</td>
+                          <td className="px-2.5 py-2.5 border-b border-line align-top min-w-[220px]">{tx.description}</td>
+                          <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.category}</td>
+                          <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
+                          <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.counterparty || '—'}</td>
+                        </tr>
+                      );
+                    })}
                     {sortedTransactions.length > 0 && (
                       <>
                         <tr className="border-t-[1.5px] border-ink">
-                          <td colSpan={3} className="px-2.5 py-2.5 font-semibold">Надходження</td>
+                          <td colSpan={4} className="px-2.5 py-2.5 font-semibold">Надходження</td>
                           <td className="px-2.5 py-2.5 text-right whitespace-nowrap font-semibold tabular-nums text-income">+ {formatNumber(projectData.totalIncome)} ₴</td>
-                          <td colSpan={3}></td>
+                          <td colSpan={4}></td>
                         </tr>
                         <tr>
-                          <td colSpan={3} className="px-2.5 py-1.5 font-medium">Витрати</td>
+                          <td colSpan={4} className="px-2.5 py-1.5">Витрати</td>
                           <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums text-expense">− {formatNumber(projectData.totalExpenses)} ₴</td>
-                          <td colSpan={3}></td>
+                          <td colSpan={4}></td>
                         </tr>
                         <tr>
-                          <td colSpan={3} className="px-2.5 py-1.5 font-medium"><TooltipWithCalculation calculation={calculations.taxes}><span>Податки та комісії 11%</span></TooltipWithCalculation></td>
+                          <td colSpan={4} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.taxes}><span>Податки та комісії посередників 11%</span></TooltipWithCalculation></td>
                           <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums">− {formatNumber(projectData.taxes)} ₴</td>
-                          <td colSpan={3}></td>
+                          <td colSpan={4}></td>
                         </tr>
                         <tr>
-                          <td colSpan={3} className="px-2.5 py-1.5 font-medium"><TooltipWithCalculation calculation={calculations.totalBonuses}><span>Бонуси нараховані</span></TooltipWithCalculation></td>
-                          <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums">− {formatNumber(projectData.totalBonuses)} ₴</td>
-                          <td colSpan={3}></td>
+                          <td colSpan={4} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.bonusFromSum}><span>Бонус з суми ({projectData.bonusFromSumPercent}%)</span></TooltipWithCalculation></td>
+                          <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums">− {formatNumber(projectData.bonusFromSum)} ₴</td>
+                          <td colSpan={4}></td>
+                        </tr>
+                        <tr>
+                          <td colSpan={4} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.bonusFromBalance}><span>Бонус з балансу ({projectData.bonusFromBalancePercent}%)</span></TooltipWithCalculation></td>
+                          <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums">− {formatNumber(projectData.bonusFromBalance)} ₴</td>
+                          <td colSpan={4}></td>
+                        </tr>
+                        <tr>
+                          <td colSpan={4} className="px-2.5 py-1.5"><TooltipWithCalculation calculation={calculations.paidBonuses}><span>Виплачено бонусів</span></TooltipWithCalculation></td>
+                          <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums">− {formatNumber(projectData.paidBonuses)} ₴</td>
+                          <td colSpan={4}></td>
                         </tr>
                         <tr className="border-t border-line font-semibold">
-                          <td colSpan={3} className="px-2.5 py-2.5"><TooltipWithCalculation calculation={calculations.balance}><span>Баланс проєкту</span></TooltipWithCalculation></td>
-                          <td className="px-2.5 py-2.5 text-right whitespace-nowrap tabular-nums">= {formatNumber(projectData.balance)} ₴</td>
-                          <td colSpan={3}></td>
+                          <td colSpan={4} className="px-2.5 py-2.5"><TooltipWithCalculation calculation={calculations.balance}><span>Баланс проєкту</span></TooltipWithCalculation></td>
+                          <td className={`px-2.5 py-2.5 text-right whitespace-nowrap tabular-nums ${projectData.balance < 0 ? 'text-tout' : ''}`}>= {formatNumber(projectData.balance)} ₴</td>
+                          <td colSpan={4}></td>
                         </tr>
                       </>
                     )}
