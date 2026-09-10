@@ -1,16 +1,18 @@
 'use client';
 
-import { parseDate, VALID_TYPES } from '@/lib/tx';
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-    ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
-} from 'recharts';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { parseDate, VALID_TYPES } from '@/lib/tx';
 import { usePersistedFilters } from '@/hooks/usePersistedState';
 import { useSheetData } from '@/hooks/useSheetData';
+import { T, CHART_SERIES, chartTooltipStyle } from '@/lib/theme';
+import { Button, ChevronDown, ChipSummary, SectionCard, SortArrow, StatTile, TextAction } from '@/components/ui';
 
-// --- Типи даних ---
 interface Transaction {
+  row?: number;
+  id?: string | null;
+  link?: string | null;
+  noTax?: boolean;
   date: string | null;
   amount: number;
   type: string;
@@ -22,615 +24,471 @@ interface Transaction {
 }
 
 interface CategoryInfo {
-    name: string;
-    type: string;
+  name: string;
+  type: string;
 }
 
-// Інтерфейс для збережених фільтрів сторінки Earn
-interface EarnPersistedFilters {
-    startDate: string;
-    endDate: string;
-    selectedCategories: string[];
-    isDateIntervalOpen: boolean;
-    isDynamicsOpen: boolean;
-    sortColumn: string;
-    sortDirection: 'asc' | 'desc';
+interface SharedPeriodFilters {
+  startDate: string;
+  endDate: string;
 }
 
-// --- Хелпери ---
+interface EarnViewFilters {
+  selectedCategories: string[] | null;
+  isDateIntervalOpen: boolean;
+  isDynamicsOpen: boolean;
+  sortColumn: string;
+  sortDirection: 'asc' | 'desc';
+}
+
+const EXCLUDED_CATEGORIES = ['Початковий баланс', 'Переказ вхідний'];
+const MONTH_NAMES_SHORT = ['СІЧ', 'ЛЮТ', 'БЕР', 'КВІ', 'ТРА', 'ЧЕР', 'ЛИП', 'СЕР', 'ВЕР', 'ЖОВ', 'ЛИС', 'ГРУ'];
+
 const formatNumber = (num: number): string => {
-    if (typeof num !== 'number' || isNaN(num)) { return '0,00'; }
-    return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (typeof num !== 'number' || isNaN(num)) return '0,00';
+  return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
-
 
 const formatDateForInput = (date: Date): string => {
-    if (!(date instanceof Date) || isNaN(date.getTime())) {
-        date = new Date();
-    }
-    const year = date.getUTCFullYear();
-    const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
-    const day = date.getUTCDate().toString().padStart(2, '0');
-    return `${year}-${month}-${day}`;
+  if (!(date instanceof Date) || isNaN(date.getTime())) date = new Date();
+  const year = date.getUTCFullYear();
+  const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+  const day = date.getUTCDate().toString().padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
-// Категорії, які виключаємо (не є реальними надходженнями)
-const EXCLUDED_CATEGORIES = ['Початковий баланс', 'Переказ вхідний'];
+const formatDateShort = (dateString: string | null | undefined, withYear = true): string => {
+  const dt = parseDate(dateString);
+  if (!dt) return '—';
+  const day = String(dt.getUTCDate()).padStart(2, '0');
+  const month = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  return withYear ? `${day}.${month}.${dt.getUTCFullYear()}` : `${day}.${month}`;
+};
 
-// Кольори для ліній графіка
-const LINE_COLORS = ['#8884D8', '#00C49F', '#FFBB28', '#FF8042', '#0088FE', '#82CA9D', '#FFC658', '#FF7C7C', '#A4DE6C', '#D0ED57'];
+const formatMoney = (value: number, showPlus = true): string => {
+  const sign = value < 0 ? '− ' : showPlus ? '+ ' : '';
+  return `${sign}${formatNumber(Math.abs(value))}`;
+};
 
-// Функція для отримання початкових дат
 const getDefaultEarnDates = () => {
-    const today = new Date();
-    const startOfYear = new Date(Date.UTC(today.getFullYear(), 0, 1));
-    return { start: formatDateForInput(startOfYear), end: formatDateForInput(today) };
+  const today = new Date();
+  const startOfYear = new Date(Date.UTC(today.getFullYear(), 0, 1));
+  return { start: formatDateForInput(startOfYear), end: formatDateForInput(today) };
+};
+
+const categoryColor = (category: string, categories: CategoryInfo[]) => {
+  const index = Math.max(0, categories.findIndex(c => c.name === category));
+  return CHART_SERIES[index % CHART_SERIES.length];
 };
 
 const EarnPage: React.FC = () => {
-    // --- Стан даних (не зберігається) ---
-    const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
-    const [categories, setCategories] = useState<CategoryInfo[]>([]);
-    const { data, isLoading, error } = useSheetData();
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  const [categories, setCategories] = useState<CategoryInfo[]>([]);
+  const { data, isLoading, error } = useSheetData();
+  const defaultDates = useMemo(() => getDefaultEarnDates(), []);
 
-    // Початкові дати
-    const defaultDates = useMemo(() => getDefaultEarnDates(), []);
+  const [periodFilters, updatePeriodFilters] = usePersistedFilters<SharedPeriodFilters>(
+    'finance-tracker-main-filters-v2',
+    { startDate: defaultDates.start, endDate: defaultDates.end }
+  );
+  const [viewFilters, updateViewFilters] = usePersistedFilters<EarnViewFilters>(
+    'finance-tracker-earn-filters-v2',
+    { selectedCategories: null, isDateIntervalOpen: false, isDynamicsOpen: true, sortColumn: 'date', sortDirection: 'desc' }
+  );
 
-    // --- Збережені фільтри (зберігаються в localStorage) ---
-    const [filters, updateFilters] = usePersistedFilters<EarnPersistedFilters>(
-        'finance-tracker-earn-filters',
-        {
-            startDate: defaultDates.start,
-            endDate: defaultDates.end,
-            selectedCategories: [],
-            isDateIntervalOpen: true,
-            isDynamicsOpen: true,
-            sortColumn: 'date',
-            sortDirection: 'desc',
-        }
-    );
+  const { startDate, endDate } = periodFilters;
+  const { selectedCategories, isDateIntervalOpen, isDynamicsOpen, sortColumn, sortDirection } = viewFilters;
 
-    // Деструктуруємо фільтри для зручності
-    const {
-        startDate, endDate, selectedCategories,
-        isDateIntervalOpen, isDynamicsOpen, sortColumn, sortDirection
-    } = filters;
+  const setStartDate = useCallback((value: string) => updatePeriodFilters({ startDate: value }), [updatePeriodFilters]);
+  const setEndDate = useCallback((value: string) => updatePeriodFilters({ endDate: value }), [updatePeriodFilters]);
+  const setSelectedCategories = useCallback((value: string[] | null | ((prev: string[] | null) => string[] | null)) => {
+    updateViewFilters(prev => ({ selectedCategories: typeof value === 'function' ? value(prev.selectedCategories) : value }));
+  }, [updateViewFilters]);
+  const setIsDateIntervalOpen = useCallback((value: boolean) => updateViewFilters({ isDateIntervalOpen: value }), [updateViewFilters]);
+  const setIsDynamicsOpen = useCallback((value: boolean) => updateViewFilters({ isDynamicsOpen: value }), [updateViewFilters]);
+  const setSortColumn = useCallback((value: string) => updateViewFilters({ sortColumn: value }), [updateViewFilters]);
+  const setSortDirection = useCallback((value: 'asc' | 'desc') => updateViewFilters({ sortDirection: value }), [updateViewFilters]);
+  const [selectedMonthRange, setSelectedMonthRange] = useState<{start: string | null, end: string | null}>({ start: null, end: null });
 
-    // Функції-сеттери для фільтрів
-    const setStartDate = useCallback((value: string) => updateFilters({ startDate: value }), [updateFilters]);
-    const setEndDate = useCallback((value: string) => updateFilters({ endDate: value }), [updateFilters]);
-    const setSelectedCategories = useCallback((value: string[] | ((prev: string[]) => string[])) => {
-        if (typeof value === 'function') {
-            updateFilters(prev => ({ selectedCategories: value(prev.selectedCategories) }));
+  useEffect(() => {
+    if (!data) return;
+    try {
+      const cleanedTransactions = data.transactions.map((tx: any) => ({
+        row: typeof tx.row === 'number' ? tx.row : undefined,
+        id: tx.id ? String(tx.id).trim() : null,
+        link: tx.link ? String(tx.link).trim() : null,
+        noTax: !!tx.noTax,
+        date: typeof tx.date === 'string' ? tx.date.trim() : null,
+        amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0,
+        type: String(tx?.type || '').trim(),
+        account: String(tx?.account || '').trim(),
+        category: String(tx?.category || '').trim(),
+        description: String(tx?.description || '').trim(),
+        counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '',
+        project: tx?.project ? String(tx.project).trim() : '',
+      })).filter((tx: Transaction) => tx.date && VALID_TYPES.includes(tx.type) && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount));
+
+      setAllTransactions(cleanedTransactions);
+      const cleanedCategories = data.categories
+        .map((cat: any) => ({ name: String(cat?.name || '').trim(), type: String(cat?.type || '').trim() }))
+        .filter((cat: CategoryInfo) => cat.name && cat.type === 'Надходження' && !EXCLUDED_CATEGORIES.includes(cat.name));
+      setCategories(cleanedCategories);
+
+      if (cleanedCategories.length > 0) {
+        const savedCategories = selectedCategories;
+        if (savedCategories === null) {
+          setSelectedCategories(cleanedCategories.map((c: CategoryInfo) => c.name));
         } else {
-            updateFilters({ selectedCategories: value });
+          const validCategories = savedCategories.filter(cat => cleanedCategories.some((c: CategoryInfo) => c.name === cat));
+          if (validCategories.length !== savedCategories.length) setSelectedCategories(validCategories);
         }
-    }, [updateFilters]);
-    const setIsDateIntervalOpen = useCallback((value: boolean) => updateFilters({ isDateIntervalOpen: value }), [updateFilters]);
-    const setIsDynamicsOpen = useCallback((value: boolean) => updateFilters({ isDynamicsOpen: value }), [updateFilters]);
-    const setSortColumn = useCallback((value: string) => updateFilters({ sortColumn: value }), [updateFilters]);
-    const setSortDirection = useCallback((value: 'asc' | 'desc') => updateFilters({ sortDirection: value }), [updateFilters]);
+      }
+    } catch (err) {
+      console.error('Failed to process sheet data:', err);
+    }
+  }, [data, selectedCategories, setSelectedCategories]);
 
-    // Стан для вибору місяців (не зберігається)
-    const [selectedMonthRange, setSelectedMonthRange] = useState<{start: string | null, end: string | null}>({start: null, end: null});
+  const activeCategories = selectedCategories || [];
 
-    // Скорочені назви місяців українською
-    const MONTH_NAMES_SHORT = ['СІЧ', 'ЛЮТ', 'БЕР', 'КВІ', 'ТРА', 'ЧЕР', 'ЛИП', 'СЕР', 'ВЕР', 'ЖОВ', 'ЛИС', 'ГРУ'];
+  const availableYearsAndMonths = useMemo(() => {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
+    const years: {year: number, months: number[]}[] = [];
+    for (let year = 2025; year <= currentYear; year++) {
+      const months: number[] = [];
+      const maxMonth = year === currentYear ? currentMonth : 11;
+      for (let month = 0; month <= maxMonth; month++) months.push(month);
+      if (months.length > 0) years.push({ year, months });
+    }
+    return years;
+  }, []);
 
-    // --- Завантаження даних ---
-    useEffect(() => {
-        if (!data) return;
-        try {
+  const isMonthActive = useCallback((year: number, month: number) => {
+    const monthStart = new Date(Date.UTC(year, month, 1));
+    const monthEnd = new Date(Date.UTC(year, month + 1, 0));
+    const start = parseDate(startDate);
+    const end = parseDate(endDate);
+    if (!start || !end) return false;
+    return monthStart <= end && monthEnd >= start;
+  }, [startDate, endDate]);
 
-             const cleanedTransactions = data.transactions.map((tx: any) => ({
-               date: typeof tx.date === 'string' ? tx.date.trim() : null,
-               amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0,
-               type: String(tx?.type || '').trim(),
-               account: String(tx?.account || '').trim(),
-               category: String(tx?.category || '').trim(),
-               description: String(tx?.description || '').trim(),
-               counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '',
-               project: tx?.project ? String(tx.project).trim() : '',
-             })).filter((tx: Transaction) => {
-               return tx.date && VALID_TYPES.includes(tx.type) && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount);
-             });
+  const isYearFullyActive = useCallback((year: number) => {
+    const yearData = availableYearsAndMonths.find(y => y.year === year);
+    if (!yearData) return false;
+    return yearData.months.every(month => isMonthActive(year, month));
+  }, [availableYearsAndMonths, isMonthActive]);
 
-             setAllTransactions(cleanedTransactions);
+  const handleYearClick = useCallback((year: number) => {
+    const today = new Date();
+    const isCurrentYear = year === today.getFullYear();
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const yearEnd = isCurrentYear ? new Date(Date.UTC(year, today.getMonth() + 1, 0)) : new Date(Date.UTC(year, 11, 31));
+    setStartDate(formatDateForInput(yearStart));
+    setEndDate(formatDateForInput(yearEnd));
+    setSelectedMonthRange({ start: null, end: null });
+  }, [setStartDate, setEndDate]);
 
-             // Категорії надходжень (виключаємо технічні)
-             const cleanedCategories = data.categories
-                 .map((cat: any) => ({ name: String(cat?.name || '').trim(), type: String(cat?.type || '').trim() }))
-                 .filter((cat: CategoryInfo) => cat.name && cat.type === 'Надходження' && !EXCLUDED_CATEGORIES.includes(cat.name));
+  const handleMonthClick = useCallback((year: number, month: number) => {
+    const monthKey = `${year}-${month}`;
+    if (!selectedMonthRange.start) {
+      const monthStart = new Date(Date.UTC(year, month, 1));
+      const monthEnd = new Date(Date.UTC(year, month + 1, 0));
+      setStartDate(formatDateForInput(monthStart));
+      setEndDate(formatDateForInput(monthEnd));
+      setSelectedMonthRange({ start: monthKey, end: monthKey });
+    } else {
+      const [startYear, startMonth] = selectedMonthRange.start.split('-').map(Number);
+      const clickedDate = new Date(Date.UTC(year, month, 1));
+      const startDateObj = new Date(Date.UTC(startYear, startMonth, 1));
+      const rangeStart = clickedDate < startDateObj ? clickedDate : startDateObj;
+      const rangeEnd = clickedDate < startDateObj ? new Date(Date.UTC(startYear, startMonth + 1, 0)) : new Date(Date.UTC(year, month + 1, 0));
+      setStartDate(formatDateForInput(rangeStart));
+      setEndDate(formatDateForInput(rangeEnd));
+      setSelectedMonthRange({ start: null, end: null });
+    }
+  }, [selectedMonthRange, setStartDate, setEndDate]);
 
-             setCategories(cleanedCategories);
+  const handleCategoryToggle = useCallback((categoryName: string) => {
+    setSelectedCategories(prev => {
+      const current = prev || [];
+      return current.includes(categoryName) ? current.filter(c => c !== categoryName) : [...current, categoryName];
+    });
+  }, [setSelectedCategories]);
 
-             // Встановлюємо категорії за замовчуванням тільки якщо:
-             // - немає збережених категорій
-             // - або жодна зі збережених категорій не існує в списку
-             if (cleanedCategories.length > 0) {
-               const savedCategories = filters.selectedCategories;
-               const validCategories = savedCategories.filter(cat =>
-                 cleanedCategories.some((c: CategoryInfo) => c.name === cat)
-               );
-               if (validCategories.length === 0) {
-                 setSelectedCategories([cleanedCategories[0].name]);
-               } else if (validCategories.length !== savedCategories.length) {
-                 // Оновлюємо, щоб видалити неіснуючі категорії
-                 setSelectedCategories(validCategories);
-               }
-             }
-        } catch (err) { console.error("Failed to process sheet data:", err); }
-     }, [data, filters.selectedCategories, setSelectedCategories]);
+  const handleSelectAllCategories = useCallback(() => setSelectedCategories(categories.map(c => c.name)), [categories, setSelectedCategories]);
+  const handleClearCategories = useCallback(() => setSelectedCategories([]), [setSelectedCategories]);
 
-    // --- Генерація років та місяців ---
-    const availableYearsAndMonths = useMemo(() => {
-        const today = new Date();
-        const currentYear = today.getFullYear();
-        const currentMonth = today.getMonth();
-        const startYear = 2025;
-        const years: {year: number, months: number[]}[] = [];
+  const handleSort = useCallback((column: string) => {
+    if (sortColumn === column) setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    else {
+      setSortColumn(column);
+      setSortDirection(column === 'date' ? 'desc' : 'asc');
+    }
+  }, [sortColumn, sortDirection, setSortColumn, setSortDirection]);
 
-        for (let year = startYear; year <= currentYear; year++) {
-            const months: number[] = [];
-            const maxMonth = year === currentYear ? currentMonth : 11;
-            for (let month = 0; month <= maxMonth; month++) {
-                months.push(month);
-            }
-            if (months.length > 0) {
-                years.push({ year, months });
-            }
+  const processedData = useMemo(() => {
+    const startFilterDate = startDate ? parseDate(startDate) : null;
+    const endFilterDate = endDate ? parseDate(endDate) : null;
+    if (startFilterDate) startFilterDate.setUTCHours(0, 0, 0, 0);
+    if (endFilterDate) endFilterDate.setUTCHours(23, 59, 59, 999);
+
+    const filteredTransactions = allTransactions.filter(tx => {
+      if (tx.type !== 'Надходження') return false;
+      if (EXCLUDED_CATEGORIES.includes(tx.category)) return false;
+      if (!activeCategories.includes(tx.category)) return false;
+      const txDate = parseDate(tx.date);
+      if (!txDate) return false;
+      if (startFilterDate && txDate < startFilterDate) return false;
+      if (endFilterDate && txDate > endFilterDate) return false;
+      return true;
+    });
+
+    const allMonthsInRange: { key: string; name: string }[] = [];
+    if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) {
+      let currentMonth = new Date(Date.UTC(startFilterDate.getUTCFullYear(), startFilterDate.getUTCMonth(), 1));
+      while (currentMonth <= endFilterDate) {
+        const monthYearKey = `${currentMonth.getUTCFullYear()}-${(currentMonth.getUTCMonth() + 1).toString().padStart(2, '0')}`;
+        const monthName = currentMonth.toLocaleString('uk-UA', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+        allMonthsInRange.push({ key: monthYearKey, name: monthName });
+        currentMonth = currentMonth.getUTCMonth() === 11 ? new Date(Date.UTC(currentMonth.getUTCFullYear() + 1, 0, 1)) : new Date(Date.UTC(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth() + 1, 1));
+      }
+    }
+
+    const monthlyData: { [monthKey: string]: { [category: string]: number } } = {};
+    allMonthsInRange.forEach(({ key }) => {
+      monthlyData[key] = {};
+      activeCategories.forEach(cat => { monthlyData[key][cat] = 0; });
+    });
+
+    filteredTransactions.forEach(tx => {
+      const txDate = parseDate(tx.date);
+      if (!txDate) return;
+      const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`;
+      if (monthlyData[monthYear] && activeCategories.includes(tx.category)) monthlyData[monthYear][tx.category] = (monthlyData[monthYear][tx.category] || 0) + tx.amount;
+    });
+
+    const chartData = allMonthsInRange.map(({ key, name }) => {
+      const dataPoint: { name: string; [key: string]: string | number } = { name };
+      activeCategories.forEach(cat => { dataPoint[cat] = monthlyData[key][cat] || 0; });
+      return dataPoint;
+    });
+
+    const totalIncome = filteredTransactions.reduce((sum, tx) => sum + tx.amount, 0);
+    return { filteredTransactions, chartData, totalIncome };
+  }, [allTransactions, startDate, endDate, activeCategories]);
+
+  const sortedTransactions = useMemo(() => {
+    return [...processedData.filteredTransactions].sort((a, b) => {
+      let comparison = 0;
+      switch (sortColumn) {
+        case 'id': comparison = (a.id || '').localeCompare(b.id || '', 'uk'); break;
+        case 'date': {
+          const dateA = parseDate(a.date);
+          const dateB = parseDate(b.date);
+          if (!dateA && !dateB) comparison = 0;
+          else if (!dateA) comparison = 1;
+          else if (!dateB) comparison = -1;
+          else comparison = dateA.getTime() - dateB.getTime();
+          break;
         }
-        return years;
-    }, []);
+        case 'amount': comparison = a.amount - b.amount; break;
+        case 'description': comparison = (a.description || '').localeCompare(b.description || '', 'uk'); break;
+        case 'category': comparison = (a.category || '').localeCompare(b.category || '', 'uk'); break;
+        case 'account': comparison = (a.account || '').localeCompare(b.account || '', 'uk'); break;
+        default: comparison = 0;
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [processedData.filteredTransactions, sortColumn, sortDirection]);
 
-    // Перевірка чи місяць активний
-    const isMonthActive = useCallback((year: number, month: number) => {
-        const monthStart = new Date(Date.UTC(year, month, 1));
-        const monthEnd = new Date(Date.UTC(year, month + 1, 0));
-        const start = parseDate(startDate);
-        const end = parseDate(endDate);
-        if (!start || !end) return false;
-        return monthStart <= end && monthEnd >= start;
-    }, [startDate, endDate]);
+  const categoryTotals = useMemo(() => {
+    const totals = new Map<string, number>();
+    processedData.filteredTransactions.forEach(tx => totals.set(tx.category, (totals.get(tx.category) || 0) + tx.amount));
+    return Array.from(totals.entries()).sort((a, b) => b[1] - a[1]);
+  }, [processedData.filteredTransactions]);
 
-    // Перевірка чи весь рік активний
-    const isYearFullyActive = useCallback((year: number) => {
-        const yearData = availableYearsAndMonths.find(y => y.year === year);
-        if (!yearData) return false;
-        return yearData.months.every(month => isMonthActive(year, month));
-    }, [availableYearsAndMonths, isMonthActive]);
+  const monthsWithData = useMemo(() => {
+    const months = new Set<string>();
+    processedData.filteredTransactions.forEach(tx => {
+      const dt = parseDate(tx.date);
+      if (dt) months.add(`${dt.getUTCFullYear()}-${dt.getUTCMonth()}`);
+    });
+    return months.size;
+  }, [processedData.filteredTransactions]);
 
-    // Обробник кліку на рік
-    const handleYearClick = useCallback((year: number) => {
-        const today = new Date();
-        const isCurrentYear = year === today.getFullYear();
-        const yearStart = new Date(Date.UTC(year, 0, 1));
-        const yearEnd = isCurrentYear
-            ? new Date(Date.UTC(year, today.getMonth() + 1, 0))
-            : new Date(Date.UTC(year, 11, 31));
-        setStartDate(formatDateForInput(yearStart));
-        setEndDate(formatDateForInput(yearEnd));
-        setSelectedMonthRange({ start: null, end: null });
-    }, []);
+  const handleExportXls = useCallback(async () => {
+    const writeXlsxFile = (await import('write-excel-file/browser')).default;
+    const header = (value: string) => ({ value, fontWeight: 'bold' as const });
+    const columns = [
+      { header: header('ID'), width: 8, cell: (tx: Transaction) => ({ type: String, value: tx.id || '' }) },
+      { header: header('Дата'), width: 12, cell: (tx: Transaction) => { const dt = parseDate(tx.date); return dt ? { type: Date, format: 'dd.mm.yyyy', value: dt } : { type: String, value: tx.date || '' }; } },
+      { header: header('Сума'), width: 12, cell: (tx: Transaction) => ({ type: Number, format: '#,##0.00', value: tx.amount }) },
+      { header: header('Категорія'), width: 24, cell: (tx: Transaction) => ({ type: String, value: tx.category || '' }) },
+      { header: header('Опис'), width: 40, cell: (tx: Transaction) => ({ type: String, value: tx.description || '' }) },
+      { header: header('Рахунок'), width: 12, cell: (tx: Transaction) => ({ type: String, value: tx.account || '' }) },
+    ];
+    await writeXlsxFile(sortedTransactions, { columns, stickyRowsCount: 1 }).toFile(`earn-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }, [sortedTransactions]);
 
-    // Обробник кліку на місяць
-    const handleMonthClick = useCallback((year: number, month: number) => {
-        const monthKey = `${year}-${month}`;
-        if (!selectedMonthRange.start) {
-            const monthStart = new Date(Date.UTC(year, month, 1));
-            const monthEnd = new Date(Date.UTC(year, month + 1, 0));
-            setStartDate(formatDateForInput(monthStart));
-            setEndDate(formatDateForInput(monthEnd));
-            setSelectedMonthRange({ start: monthKey, end: monthKey });
-        } else {
-            const [startYear, startMonth] = selectedMonthRange.start.split('-').map(Number);
-            const clickedDate = new Date(Date.UTC(year, month, 1));
-            const startDateObj = new Date(Date.UTC(startYear, startMonth, 1));
-            let rangeStart: Date, rangeEnd: Date;
-            if (clickedDate < startDateObj) {
-                rangeStart = clickedDate;
-                rangeEnd = new Date(Date.UTC(startYear, startMonth + 1, 0));
-            } else {
-                rangeStart = startDateObj;
-                rangeEnd = new Date(Date.UTC(year, month + 1, 0));
-            }
-            setStartDate(formatDateForInput(rangeStart));
-            setEndDate(formatDateForInput(rangeEnd));
-            setSelectedMonthRange({ start: null, end: null });
-        }
-    }, [selectedMonthRange]);
+  const periodLabel = `${formatDateShort(startDate, false)} – ${formatDateShort(endDate)}`;
+  const topCategory = categoryTotals[0];
+  const topCategoryLabel = topCategory && processedData.totalIncome > 0 ? `${topCategory[0]} · ${Math.round((topCategory[1] / processedData.totalIncome) * 100)}%` : '—';
+  const averageMonth = monthsWithData > 0 ? processedData.totalIncome / monthsWithData : 0;
+  const categoriesAllSelected = categories.length > 0 && activeCategories.length === categories.length;
+  const columns = [
+    { key: 'id', label: 'ID', align: 'text-left' },
+    { key: 'date', label: 'Дата', align: 'text-left' },
+    { key: 'amount', label: 'Сума', align: 'text-right' },
+    { key: 'category', label: 'Категорія', align: 'text-left' },
+    { key: 'description', label: 'Опис', align: 'text-left' },
+    { key: 'account', label: 'Рахунок', align: 'text-left' },
+  ];
 
-    // Обробник вибору категорії (toggle)
-    const handleCategoryToggle = useCallback((categoryName: string) => {
-        setSelectedCategories(prev => {
-            if (prev.includes(categoryName)) {
-                // Не дозволяємо зняти останню категорію
-                if (prev.length === 1) return prev;
-                return prev.filter(c => c !== categoryName);
-            } else {
-                return [...prev, categoryName];
-            }
-        });
-    }, []);
-
-    // Обробник сортування таблиці
-    const handleSort = useCallback((column: string) => {
-        if (sortColumn === column) {
-            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-        } else {
-            setSortColumn(column);
-            setSortDirection(column === 'date' ? 'desc' : 'asc');
-        }
-    }, [sortColumn, sortDirection, setSortColumn, setSortDirection]);
-
-    // --- Обробка даних для графіка та таблиці ---
-    const processedData = useMemo(() => {
-        const startFilterDate = startDate ? parseDate(startDate) : null;
-        const endFilterDate = endDate ? parseDate(endDate) : null;
-        if (startFilterDate) startFilterDate.setUTCHours(0, 0, 0, 0);
-        if (endFilterDate) endFilterDate.setUTCHours(23, 59, 59, 999);
-
-        // Фільтруємо транзакції надходжень за вибраними категоріями
-        const filteredTransactions = allTransactions.filter(tx => {
-            if (tx.type !== 'Надходження') return false;
-            if (EXCLUDED_CATEGORIES.includes(tx.category)) return false;
-            if (selectedCategories.length > 0 && !selectedCategories.includes(tx.category)) return false;
-            const txDate = parseDate(tx.date);
-            if (!txDate) return false;
-            if (startFilterDate && txDate < startFilterDate) return false;
-            if (endFilterDate && txDate > endFilterDate) return false;
-            return true;
-        });
-
-        // Генеруємо місяці для графіка
-        const allMonthsInRange: { key: string; name: string }[] = [];
-        if (startFilterDate && endFilterDate && startFilterDate <= endFilterDate) {
-            let currentMonth = new Date(Date.UTC(startFilterDate.getUTCFullYear(), startFilterDate.getUTCMonth(), 1));
-            while (currentMonth <= endFilterDate) {
-                const monthYearKey = `${currentMonth.getUTCFullYear()}-${(currentMonth.getUTCMonth() + 1).toString().padStart(2, '0')}`;
-                const monthName = currentMonth.toLocaleString('uk-UA', { month: 'short', year: 'numeric', timeZone: 'UTC' });
-                allMonthsInRange.push({ key: monthYearKey, name: monthName });
-                if (currentMonth.getUTCMonth() === 11) {
-                    currentMonth = new Date(Date.UTC(currentMonth.getUTCFullYear() + 1, 0, 1));
-                } else {
-                    currentMonth.setUTCMonth(currentMonth.getUTCMonth() + 1);
-                }
-            }
-        }
-
-        // Групуємо по місяцям та категоріям
-        const monthlyData: { [monthKey: string]: { [category: string]: number } } = {};
-        allMonthsInRange.forEach(({ key }) => {
-            monthlyData[key] = {};
-            selectedCategories.forEach(cat => {
-                monthlyData[key][cat] = 0;
-            });
-        });
-
-        filteredTransactions.forEach(tx => {
-            const txDate = parseDate(tx.date);
-            if (txDate) {
-                const monthYear = `${txDate.getUTCFullYear()}-${(txDate.getUTCMonth() + 1).toString().padStart(2, '0')}`;
-                if (monthlyData[monthYear] && selectedCategories.includes(tx.category)) {
-                    monthlyData[monthYear][tx.category] = (monthlyData[monthYear][tx.category] || 0) + tx.amount;
-                }
-            }
-        });
-
-        // Формуємо дані для графіка
-        const chartData = allMonthsInRange.map(({ key, name }) => {
-            const dataPoint: { name: string; [key: string]: string | number } = { name };
-            selectedCategories.forEach(cat => {
-                dataPoint[cat] = monthlyData[key][cat] || 0;
-            });
-            return dataPoint;
-        });
-
-        // Загальна сума надходжень
-        const totalIncome = filteredTransactions.reduce((sum, tx) => sum + tx.amount, 0);
-
-        return { filteredTransactions, chartData, totalIncome };
-    }, [allTransactions, startDate, endDate, selectedCategories]);
-
-    // --- РЕНДЕР КОМПОНЕНТА ---
-    return (
-        <div>
-          {/* --- БЛОК ІНТЕРВАЛ ДАТ --- */}
-          <div className="mb-4 border rounded bg-white shadow">
-              <h2
-                  className="text-lg font-semibold p-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 select-none flex items-center justify-between"
-                  onClick={() => setIsDateIntervalOpen(!isDateIntervalOpen)}
-              >
-                  <span>Інтервал дат</span>
-                  <span className="text-gray-400 text-sm">{isDateIntervalOpen ? '▲' : '▼'}</span>
-              </h2>
-              {isDateIntervalOpen && (
-                  <div className="p-4 pt-0 space-y-4">
-                      {/* Верхній рядок: Початок та Кінець */}
-                      <div className="flex flex-col sm:flex-row gap-4">
-                          <div className='flex-1'>
-                              <label htmlFor="earn-startDate" className="block text-xs font-medium text-gray-600 mb-1">Початок</label>
-                              <input
-                                  id="earn-startDate"
-                                  type="date"
-                                  value={startDate}
-                                  onChange={(e) => {
-                                      setStartDate(e.target.value);
-                                      setSelectedMonthRange({ start: null, end: null });
-                                  }}
-                                  className="w-full p-1.5 sm:p-2 border border-gray-300 rounded text-xs sm:text-sm shadow-sm focus:ring-2 focus:ring-[#8884D8] focus:border-[#8884D8]"
-                              />
-                          </div>
-                          <div className='flex-1'>
-                              <label htmlFor="earn-endDate" className="block text-xs font-medium text-gray-600 mb-1">Кінець</label>
-                              <input
-                                  id="earn-endDate"
-                                  type="date"
-                                  value={endDate}
-                                  onChange={(e) => {
-                                      setEndDate(e.target.value);
-                                      setSelectedMonthRange({ start: null, end: null });
-                                  }}
-                                  className="w-full p-1.5 sm:p-2 border border-gray-300 rounded text-xs sm:text-sm shadow-sm focus:ring-2 focus:ring-[#8884D8] focus:border-[#8884D8]"
-                              />
-                          </div>
-                      </div>
-
-                      {/* Таймлайн років та місяців */}
-                      <div className="space-y-3">
-                          {availableYearsAndMonths.map(({ year, months }) => (
-                              <div key={year} className="space-y-2">
-                                  <div className="flex items-center gap-3">
-                                      <button
-                                          onClick={() => handleYearClick(year)}
-                                          className={`text-sm font-bold px-3 py-1 rounded-lg transition-colors duration-150 ${
-                                              isYearFullyActive(year)
-                                                  ? 'bg-[#8884D8] text-white'
-                                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                          }`}
-                                      >
-                                          {year}
-                                      </button>
-                                      <div className="flex-1 grid grid-cols-6 md:grid-cols-12 gap-1">
-                                          {months.map((month) => {
-                                              const isActive = isMonthActive(year, month);
-                                              const monthKey = `${year}-${month}`;
-                                              const isSelecting = selectedMonthRange.start === monthKey;
-
-                                              return (
-                                                  <button
-                                                      key={month}
-                                                      onClick={() => handleMonthClick(year, month)}
-                                                      className={`
-                                                          w-full aspect-square rounded-full text-xs font-medium
-                                                          transition-all duration-150 flex items-center justify-center
-                                                          ${isActive
-                                                              ? 'bg-[#8884D8] text-white shadow-md'
-                                                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                                          }
-                                                          ${isSelecting ? 'ring-2 ring-[#00C49F] ring-offset-1' : ''}
-                                                      `}
-                                                      title={`${MONTH_NAMES_SHORT[month]} ${year}`}
-                                                  >
-                                                      {MONTH_NAMES_SHORT[month]}
-                                                  </button>
-                                              );
-                                          })}
-                                      </div>
-                                  </div>
-                              </div>
-                          ))}
-                      </div>
-                  </div>
-              )}
+  return (
+    <div className="flex flex-col gap-4">
+      {/* design-md: fintracker Журнал v1 */}
+      {isLoading && !data && <p className="text-sm text-ink-2 text-center py-10">Завантаження...</p>}
+      {error && !data && <p className="text-danger text-sm text-center py-10">Помилка завантаження звіту: {error}</p>}
+      {data && (
+        <>
+          <div className="flex gap-2.5 items-center flex-wrap">
+            <ChipSummary label="Період" value={periodLabel} onClick={() => setIsDateIntervalOpen(!isDateIntervalOpen)} />
+            <span className="flex-1" />
+            <TextAction onClick={() => { setStartDate(defaultDates.start); setEndDate(defaultDates.end); setSelectedMonthRange({ start: null, end: null }); setSelectedCategories(categories.map(c => c.name)); }}>Скинути</TextAction>
           </div>
 
-          {/* --- БЛОК КАТЕГОРІЇ НАДХОДЖЕНЬ --- */}
-          <div className="mb-6">
-              <h2 className="text-lg font-semibold mb-3 text-center">Категорії надходжень</h2>
-              {isLoading ? (
-                  <p className="text-center text-gray-500">Завантаження категорій...</p>
-              ) : error ? (
-                  <p className="text-center text-red-600">Помилка: {error}</p>
-              ) : categories.length === 0 ? (
-                  <p className="text-center text-gray-500">Категорій не знайдено</p>
-              ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-3">
-                      {categories.map((category, index) => (
-                          <button
-                              key={category.name}
-                              onClick={() => handleCategoryToggle(category.name)}
-                              className={`p-3 sm:p-4 rounded-lg border-2 text-center transition-all duration-200 ${
-                                  selectedCategories.includes(category.name)
-                                      ? 'border-[#8884D8] bg-[#8884D8] text-white shadow-lg'
-                                      : 'border-gray-200 bg-white hover:border-[#8884D8] hover:shadow-md'
-                              }`}
-                          >
-                              <span className="text-xs sm:text-sm font-medium block truncate">
-                                  {category.name}
-                              </span>
-                              {selectedCategories.includes(category.name) && (
-                                  <span className="text-xs mt-1 block text-white/80">
-                                      <span className="inline-block w-3 h-3 rounded-full mr-1" style={{ backgroundColor: LINE_COLORS[index % LINE_COLORS.length] }}></span>
-                                  </span>
-                              )}
-                          </button>
-                      ))}
+          {isDateIntervalOpen && (
+            <SectionCard title="Період">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="sm:flex-[0_0_200px]">
+                    <label htmlFor="earn-startDate" className="block text-xs text-ink-2 mb-1">Початок</label>
+                    <input id="earn-startDate" type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setSelectedMonthRange({ start: null, end: null }); }} className="w-full px-3 py-2 rounded-field border border-line bg-panel text-[13px] tabular-nums focus:border-ink focus:outline-none" />
                   </div>
-              )}
+                  <div className="sm:flex-[0_0_200px]">
+                    <label htmlFor="earn-endDate" className="block text-xs text-ink-2 mb-1">Кінець</label>
+                    <input id="earn-endDate" type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setSelectedMonthRange({ start: null, end: null }); }} className="w-full px-3 py-2 rounded-field border border-line bg-panel text-[13px] tabular-nums focus:border-ink focus:outline-none" />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {availableYearsAndMonths.map(({ year, months }) => (
+                    <div key={year} className="flex gap-1.5 items-center flex-wrap">
+                      <button type="button" onClick={() => handleYearClick(year)} className={`h-[30px] px-3 rounded-full text-xs font-semibold border ${isYearFullyActive(year) ? 'bg-ink text-white border-ink' : 'bg-mute text-ink border-line hover:border-ink-3'}`}>{year}</button>
+                      {months.map(month => {
+                        const isActive = isMonthActive(year, month);
+                        const isSelecting = selectedMonthRange.start === `${year}-${month}`;
+                        return <button key={`${year}-${month}`} type="button" onClick={() => handleMonthClick(year, month)} className={`h-[30px] px-3 rounded-full text-xs font-medium border ${isActive ? 'bg-ink text-white border-ink' : 'bg-transparent text-ink-2 border-line hover:border-ink-3'} ${isSelecting ? 'ring-2 ring-ink ring-offset-1' : ''}`}>{MONTH_NAMES_SHORT[month]}</button>;
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </SectionCard>
+          )}
+
+          <SectionCard
+            title="Категорії надходжень"
+            aside={<TextAction className="text-xs" onClick={categoriesAllSelected ? handleClearCategories : handleSelectAllCategories}>{categoriesAllSelected ? 'Зняти всі' : 'Вибрати всі'}</TextAction>}
+          >
+            {isLoading ? <p className="text-xs text-ink-3">Завантаження категорій...</p> : categories.length === 0 ? <p className="text-xs text-ink-3">Категорій не знайдено</p> : (
+              <div className="flex gap-1.5 flex-wrap">
+                {categories.map((category, index) => {
+                  const active = activeCategories.includes(category.name);
+                  return (
+                    <button key={category.name} type="button" onClick={() => handleCategoryToggle(category.name)} className={`inline-flex items-center gap-2 h-7 sm:h-[32px] px-2.5 sm:px-3.5 rounded-full text-xs sm:text-[13px] font-medium border ${active ? 'bg-ink text-white border-ink' : 'bg-transparent text-ink-2 border-line hover:border-ink-3'}`}>
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_SERIES[index % CHART_SERIES.length] }} />
+                      <span>{category.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </SectionCard>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <StatTile label="Усі надходження за період" value={`${formatMoney(processedData.totalIncome)} ₴`} tone="income" />
+            <StatTile label="Найбільше джерело" value={topCategoryLabel} />
+            <StatTile label="Середнє за місяць" value={`${formatNumber(averageMonth)} ₴`} />
           </div>
 
-          {/* --- ГРАФІК ДИНАМІКИ НАДХОДЖЕНЬ --- */}
-          {!isLoading && !error && (
-              <div className="p-4 border rounded shadow bg-white mb-6">
-                  <h2
-                      className="text-lg font-semibold mb-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 select-none flex items-center justify-between"
-                      onClick={() => setIsDynamicsOpen(!isDynamicsOpen)}
-                  >
-                      <span>Динаміка надходжень</span>
-                      <span className="text-gray-400 text-sm">{isDynamicsOpen ? '▲' : '▼'}</span>
-                  </h2>
-                  {isDynamicsOpen && processedData.chartData.length > 0 ? (
-                      <>
-                          <ResponsiveContainer width="100%" height={350}>
-                              <LineChart data={processedData.chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-                                  <CartesianGrid strokeDasharray="3 3" />
-                                  <XAxis dataKey="name" fontSize={12} />
-                                  <YAxis tickFormatter={(value) => formatNumber(value)} fontSize={12} width={70}/>
-                                  <Tooltip
-                                      formatter={(value: number, name: string) => [`${formatNumber(value)} ₴`, name]}
-                                      contentStyle={{ backgroundColor: 'white', border: '1px solid #ccc', borderRadius: '8px' }}
-                                  />
-                                  <Legend wrapperStyle={{fontSize: "12px"}}/>
-                                  {selectedCategories.map((category, index) => (
-                                      <Line
-                                          key={category}
-                                          type="monotone"
-                                          dataKey={category}
-                                          stroke={LINE_COLORS[categories.findIndex(c => c.name === category) % LINE_COLORS.length]}
-                                          strokeWidth={2}
-                                          dot={{ r: 4 }}
-                                          activeDot={{ r: 6 }}
-                                      />
-                                  ))}
-                              </LineChart>
-                          </ResponsiveContainer>
+          <SectionCard title="Динаміка надходжень за категоріями" aside={<span className="text-xs text-ink-2">кожна лінія — категорія, кольори як у чипах</span>}>
+            {isDynamicsOpen && processedData.chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={processedData.chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={T.line} />
+                  <XAxis dataKey="name" tick={{ fill: T.ink2, fontSize: 11 }} />
+                  <YAxis tickFormatter={(value) => Math.round(value).toLocaleString('uk-UA')} tick={{ fill: T.ink2, fontSize: 11 }} width={62} />
+                  <Tooltip formatter={(value: number, name: string) => [`${formatNumber(value)} ₴`, name]} contentStyle={chartTooltipStyle} />
+                  {activeCategories.map(category => (
+                    <Line key={category} type="monotone" dataKey={category} stroke={categoryColor(category, categories)} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            ) : isDynamicsOpen ? <p className="text-center text-ink-2 py-10">Немає даних для відображення за обраними фільтрами.</p> : null}
+            <button type="button" className="mt-2 inline-flex items-center gap-1 text-[13px] text-ink-2 hover:text-ink" onClick={() => setIsDynamicsOpen(!isDynamicsOpen)}>
+              {isDynamicsOpen ? 'Згорнути' : 'Розгорнути'} <ChevronDown className={isDynamicsOpen ? 'rotate-180' : ''} />
+            </button>
+          </SectionCard>
 
-                          {/* Сума надходжень під графіком */}
-                          <div className="mt-6 flex justify-center">
-                              <div className="text-center">
-                                  <p className="text-sm text-gray-600 mb-1">Сума надходжень</p>
-                                  <p className="text-2xl font-bold" style={{ color: '#00C49F' }}>
-                                      {formatNumber(processedData.totalIncome)} ₴
-                                  </p>
-                              </div>
-                          </div>
-                      </>
-                  ) : isDynamicsOpen ? (
-                      <p className="text-center text-gray-500 py-10">Немає даних для відображення за обраними фільтрами.</p>
-                  ) : null}
-              </div>
-          )}
-
-          {/* --- ТАБЛИЦЯ ТРАНЗАКЦІЙ --- */}
-          {isLoading && <p className="mt-4 text-center">Завантаження транзакцій...</p>}
-          {!isLoading && !error && (
-              <div className="overflow-x-auto mt-4">
-                 <h2 className="text-lg font-semibold mb-2 text-center">Детальні надходження за період</h2>
-                 <table className="min-w-full divide-y divide-gray-200">
-                   <thead className="bg-gray-50">
-                     <tr>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'date' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('date')}
-                       >
-                         Дата {sortColumn === 'date' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-right text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'amount' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('amount')}
-                       >
-                         Сума {sortColumn === 'amount' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'description' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('description')}
-                       >
-                         Опис {sortColumn === 'description' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'category' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('category')}
-                       >
-                         Категорія {sortColumn === 'category' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'account' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('account')}
-                       >
-                         Рахунок {sortColumn === 'account' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                       <th
-                         scope="col"
-                         className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'counterparty' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
-                         onClick={() => handleSort('counterparty')}
-                       >
-                         Контрагент {sortColumn === 'counterparty' && (sortDirection === 'asc' ? '↑' : '↓')}
-                       </th>
-                     </tr>
-                   </thead>
-                   <tbody className="bg-white divide-y divide-gray-200">
-                     {processedData.filteredTransactions.length === 0 ? (
-                       <tr> <td colSpan={6} className="px-4 py-4 text-center text-gray-500">Транзакцій за обраними фільтрами не знайдено</td> </tr>
-                     ) : (
-                       [...processedData.filteredTransactions]
-                         .sort((a, b) => {
-                           let comparison = 0;
-                           switch (sortColumn) {
-                             case 'date':
-                               const dateA = parseDate(a.date);
-                               const dateB = parseDate(b.date);
-                               if (!dateA && !dateB) comparison = 0;
-                               else if (!dateA) comparison = 1;
-                               else if (!dateB) comparison = -1;
-                               else comparison = dateA.getTime() - dateB.getTime();
-                               break;
-                             case 'amount':
-                               comparison = a.amount - b.amount;
-                               break;
-                             case 'description':
-                               comparison = (a.description || '').localeCompare(b.description || '', 'uk');
-                               break;
-                             case 'category':
-                               comparison = (a.category || '').localeCompare(b.category || '', 'uk');
-                               break;
-                             case 'account':
-                               comparison = (a.account || '').localeCompare(b.account || '', 'uk');
-                               break;
-                             case 'counterparty':
-                               comparison = (a.counterparty || '').localeCompare(b.counterparty || '', 'uk');
-                               break;
-                             default:
-                               comparison = 0;
-                           }
-                           return sortDirection === 'asc' ? comparison : -comparison;
-                         })
-                         .map((tx, index) => (
-                           <tr key={`${tx.date}-${index}-${tx.amount}`} className="bg-green-50 hover:bg-green-100 transition-colors duration-150 ease-in-out">
-                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{tx.date}</td>
-                             <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-[#00C49F]">+ {formatNumber(tx.amount)} ₴</td>
-                             <td className="px-4 py-2 text-sm text-gray-500 min-w-[220px]">{tx.description}</td>
-                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.category}</td>
-                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.account}</td>
-                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.counterparty || '-'}</td>
-                           </tr>
-                         ))
-                     )}
-                     {/* Підсумковий рядок */}
-                     {processedData.filteredTransactions.length > 0 && (
-                         <tr className="bg-green-100 border-t-2 border-green-300">
-                             <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-green-800">
-                                 Разом
-                             </td>
-                             <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-bold text-green-800">
-                                 + {formatNumber(processedData.totalIncome)} ₴
-                             </td>
-                             <td colSpan={4} className="px-4 py-2 text-sm text-green-800">
-                                 Сума надходжень за обраний період
-                             </td>
-                         </tr>
-                     )}
-                   </tbody>
-                 </table>
-              </div>
-          )}
-        </div>
-      );
+          <SectionCard
+            title="Надходження за період"
+            aside={<Button onClick={handleExportXls} disabled={sortedTransactions.length === 0} title="Завантажити надходження у XLSX">XLSX</Button>}
+          >
+            <div className="sm:hidden">
+              {sortedTransactions.length === 0 ? <div className="py-4 text-center text-ink-2">Транзакцій за обраними фільтрами не знайдено</div> : sortedTransactions.map((tx, index) => (
+                <div key={`${tx.id || ''}-${tx.date}-${index}-${tx.amount}`} className="flex flex-col gap-1 py-2.5 border-b border-line">
+                  <div className="flex justify-between items-baseline gap-2">
+                    <span className="text-xs text-ink-2 tabular-nums truncate">{formatDateShort(tx.date, false)} · {tx.account} · {tx.id || 'без ID'}</span>
+                    <span className="text-[15px] font-semibold tabular-nums whitespace-nowrap text-income">+ {formatNumber(tx.amount)}</span>
+                  </div>
+                  <div className="text-sm">{tx.description}</div>
+                  <div className="inline-flex items-center gap-1.5 text-xs text-ink-2">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categoryColor(tx.category, categories) }} />
+                    {tx.category}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full border-collapse text-[13.5px]">
+                <thead>
+                  <tr>
+                    {columns.map(col => (
+                      <th key={col.key} className={`px-2.5 py-2 border-b border-line text-[11px] uppercase tracking-[.06em] font-medium cursor-pointer select-none whitespace-nowrap ${col.align} ${sortColumn === col.key ? 'text-ink' : 'text-ink-2'}`} onClick={() => handleSort(col.key)}>
+                        {col.label}{sortColumn === col.key && <SortArrow direction={sortDirection} />}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedTransactions.length === 0 ? (
+                    <tr><td colSpan={6} className="py-4 text-center text-ink-2">Транзакцій за обраними фільтрами не знайдено</td></tr>
+                  ) : sortedTransactions.map((tx, index) => (
+                    <tr key={`${tx.id || ''}-${tx.date}-${index}-${tx.amount}`}>
+                      <td className="px-2.5 py-2.5 border-b border-line align-top text-xs text-ink-2 tabular-nums whitespace-nowrap">{tx.id || 'без ID'}</td>
+                      <td className="px-2.5 py-2.5 border-b border-line align-top tabular-nums whitespace-nowrap">{formatDateShort(tx.date)}</td>
+                      <td className="px-2.5 py-2.5 border-b border-line align-top text-right whitespace-nowrap font-semibold tabular-nums text-income">+ {formatNumber(tx.amount)} ₴</td>
+                      <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap"><span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categoryColor(tx.category, categories) }} />{tx.category}</span></td>
+                      <td className="px-2.5 py-2.5 border-b border-line align-top min-w-[220px]">{tx.description}</td>
+                      <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
+                    </tr>
+                  ))}
+                  {sortedTransactions.length > 0 && (
+                    <tr className="border-t-[1.5px] border-ink font-semibold">
+                      <td colSpan={2} className="px-2.5 py-3">Разом надходжень</td>
+                      <td className="px-2.5 py-3 text-right whitespace-nowrap tabular-nums text-income">+ {formatNumber(processedData.totalIncome)} ₴</td>
+                      <td colSpan={3} className="px-2.5 py-3 text-xs text-ink-2 font-normal">{sortedTransactions.length} транзакцій · без «Початковий баланс» і переказів</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
+        </>
+      )}
+    </div>
+  );
 };
 
 export default EarnPage;
