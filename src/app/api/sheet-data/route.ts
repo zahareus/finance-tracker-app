@@ -82,7 +82,7 @@ export async function GET() {
       project: row[7] || '', // Опціональне поле проекту
       link: row[9] ? String(row[9]).trim() : null, // Колонка J — ID вихідного переказу, до якого привʼязаний цей вхідний
       noTax: String(row[10] ?? '').trim().toUpperCase() === 'TRUE', // Колонка K — прапорець «Без 11%»
-    })).filter((t, index) => rawTransactions[index].some(cell => String(cell ?? '').trim())); // Відкидаємо лише повністю порожні рядки; без дати — лишаємо, фронт їх порахує як пропущені
+    })).filter((t, index) => rawTransactions[index].slice(0, 8).some(cell => String(cell ?? '').trim())); // Порожній рядок = порожні A–H (прапорець FALSE у K і ID не рахуються); без дати — лишаємо, фронт порахує як пропущений
 
     // Обробка рахунків
     const rawAccounts = response.data.valueRanges[1]?.values || [];

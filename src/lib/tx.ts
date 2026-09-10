@@ -1,7 +1,9 @@
 // Спільні правила моделі обліку (09–10.09.2026): три напрямки руху грошей, перекази парами, база 11%.
-export const TRANSFER_LEGACY = 'Переказ';          // старе значення типу — приймається до кінця міграції
-export const TRANSFER_IN = 'Переказ вхідний';
-export const TRANSFER_OUT = 'Переказ вихідний';
+// Значення типу в таблиці — так, як їх назвав Віктор у правилі колонки C (10.09.2026)
+export const TRANSFER_IN = 'Переказ ВХІД';
+export const TRANSFER_OUT = 'ВИХІД Переказ';
+export const TRANSFER_IN_ALIASES = [TRANSFER_IN, 'Переказ вхідний'];
+export const TRANSFER_OUT_ALIASES = [TRANSFER_OUT, 'Переказ вихідний'];
 export const OUT_CAT = 'Переказ вихідний';
 export const VIA_CAT = 'Гранти через посередника';
 export const OPENING_CAT = 'Початковий баланс';
@@ -9,7 +11,7 @@ export const TECH_CAT = 'Технічна транзакція';
 export const FOP_FEE_CAT = 'Обслуговування ФОП';
 export const FOP_ACCOUNTS = ['СБ', 'СЧ', 'ВЗ', 'СЛ', 'КМ'];
 export const TAX_RATE = 0.11;
-export const VALID_TYPES = ['Надходження', 'Витрата', TRANSFER_LEGACY, TRANSFER_IN, TRANSFER_OUT];
+export const VALID_TYPES = ['Надходження', 'Витрата', ...TRANSFER_IN_ALIASES, ...TRANSFER_OUT_ALIASES];
 export const RUNWAY_EXCLUDED_DEFAULT = [TECH_CAT];
 
 export interface TxLike {
@@ -23,9 +25,9 @@ export interface TxLike {
 }
 
 export const isFop = (account: string) => FOP_ACCOUNTS.includes(account);
-export const isTransfer = (tx: TxLike) => tx.type === TRANSFER_LEGACY || tx.type === TRANSFER_IN || tx.type === TRANSFER_OUT;
-// Напрямок: категорія має пріоритет (на час міграції, поки тип може бути старим «Переказ»), тип — фолбек.
-export const isOutgoing = (tx: TxLike) => isTransfer(tx) && (tx.category === OUT_CAT || (tx.category !== TRANSFER_IN && tx.category !== VIA_CAT && tx.type === TRANSFER_OUT));
+export const isTransfer = (tx: TxLike) => TRANSFER_IN_ALIASES.includes(tx.type) || TRANSFER_OUT_ALIASES.includes(tx.type);
+// Напрямок — за типом. Стару логіку «за категорією» знято 10.09 після звірки (67/64, баланс без змін).
+export const isOutgoing = (tx: TxLike) => TRANSFER_OUT_ALIASES.includes(tx.type);
 export const isIncoming = (tx: TxLike) => isTransfer(tx) && !isOutgoing(tx);
 
 // Знак для балансу рахунку
