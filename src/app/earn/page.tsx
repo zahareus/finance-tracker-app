@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { parseDate, VALID_TYPES } from '@/lib/tx';
 import { usePersistedFilters } from '@/hooks/usePersistedState';
 import { useSheetData } from '@/hooks/useSheetData';
 import { T, CHART_SERIES, chartTooltipStyle } from '@/lib/theme';
-import { Button, ChevronDown, ChipSummary, SectionCard, SortArrow, StatTile, TextAction } from '@/components/ui';
+import { Button, Checkbox, ChevronDown, ChipSummary, SectionCard, SortArrow, StatTile, TextAction } from '@/components/ui';
+import { copyRowsToClipboard, useCopyToast } from '@/lib/copyRows';
 
 interface Transaction {
   row?: number;
@@ -296,6 +297,7 @@ const EarnPage: React.FC = () => {
         case 'description': comparison = (a.description || '').localeCompare(b.description || '', 'uk'); break;
         case 'category': comparison = (a.category || '').localeCompare(b.category || '', 'uk'); break;
         case 'account': comparison = (a.account || '').localeCompare(b.account || '', 'uk'); break;
+        case 'counterparty': comparison = (a.counterparty || '').localeCompare(b.counterparty || '', 'uk'); break;
         default: comparison = 0;
       }
       return sortDirection === 'asc' ? comparison : -comparison;
@@ -327,9 +329,26 @@ const EarnPage: React.FC = () => {
       { header: header('Категорія'), width: 24, cell: (tx: Transaction) => ({ type: String, value: tx.category || '' }) },
       { header: header('Опис'), width: 40, cell: (tx: Transaction) => ({ type: String, value: tx.description || '' }) },
       { header: header('Рахунок'), width: 12, cell: (tx: Transaction) => ({ type: String, value: tx.account || '' }) },
+      { header: header('Контрагент'), width: 18, cell: (tx: Transaction) => ({ type: String, value: tx.counterparty || '' }) },
     ];
     await writeXlsxFile(sortedTransactions, { columns, stickyRowsCount: 1 }).toFile(`earn-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }, [sortedTransactions]);
+
+  // Виділення рядків і «Скопіювати (N)» — той самий хелпер, що на Балансі
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const { toast: copiedToast, showToast, showError } = useCopyToast();
+  const rowKey = (tx: Transaction) => `${tx.row ?? ''}:${tx.id || ''}:${tx.date}:${tx.amount}`;
+  const toggleSelected = useCallback((key: string) => setSelectedIds(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; }), []);
+  const allVisibleSelected = sortedTransactions.length > 0 && sortedTransactions.every(tx => selectedIds.has(rowKey(tx)));
+  const toggleAllVisible = useCallback(() => setSelectedIds(prev => { if (sortedTransactions.every(tx => prev.has(rowKey(tx)))) return new Set(); return new Set(sortedTransactions.map(rowKey)); }), [sortedTransactions]);
+  const handleCopy = useCallback(async () => {
+    const rows = sortedTransactions.filter(tx => selectedIds.has(rowKey(tx)));
+    if (!rows.length) return;
+    const header = ['ID', 'Дата', 'Сума', 'Тип', 'Рахунок', 'Категорія', 'Опис', 'Контрагент', 'Проект', 'Звʼязок', 'Без 11%'];
+    const tsvRows = rows.map(tx => [tx.id || '', tx.date || '', tx.amount, tx.type, tx.account, tx.category, tx.description, tx.counterparty || '', tx.project || '', tx.link || '', tx.noTax ? 'TRUE' : '']);
+    const { ok } = await copyRowsToClipboard(header, tsvRows);
+    if (ok) showToast(rows.length); else showError();
+  }, [sortedTransactions, selectedIds, showToast, showError]);
 
   const periodLabel = `${formatDateShort(startDate, false)} – ${formatDateShort(endDate)}`;
   const topCategory = categoryTotals[0];
@@ -343,6 +362,7 @@ const EarnPage: React.FC = () => {
     { key: 'category', label: 'Категорія', align: 'text-left' },
     { key: 'description', label: 'Опис', align: 'text-left' },
     { key: 'account', label: 'Рахунок', align: 'text-left' },
+    { key: 'counterparty', label: 'Контрагент', align: 'text-left' },
   ];
 
   return (
@@ -378,7 +398,7 @@ const EarnPage: React.FC = () => {
                       {months.map(month => {
                         const isActive = isMonthActive(year, month);
                         const isSelecting = selectedMonthRange.start === `${year}-${month}`;
-                        return <button key={`${year}-${month}`} type="button" onClick={() => handleMonthClick(year, month)} className={`h-[30px] px-3 rounded-full text-xs font-medium border ${isActive ? 'bg-ink text-white border-ink' : 'bg-transparent text-ink-2 border-line hover:border-ink-3'} ${isSelecting ? 'ring-2 ring-ink ring-offset-1' : ''}`}>{MONTH_NAMES_SHORT[month]}</button>;
+                        return <button key={`${year}-${month}`} type="button" title={`${MONTH_NAMES_SHORT[month]} ${year}`} onClick={() => handleMonthClick(year, month)} className={`h-[30px] px-3 rounded-full text-xs font-medium border ${isActive ? 'bg-ink text-white border-ink' : 'bg-transparent text-ink-2 border-line hover:border-ink-3'} ${isSelecting ? 'ring-2 ring-ink ring-offset-1' : ''}`}>{MONTH_NAMES_SHORT[month]}</button>;
                       })}
                     </div>
                   ))}
@@ -412,7 +432,10 @@ const EarnPage: React.FC = () => {
             <StatTile label="Середнє за місяць" value={`${formatNumber(averageMonth)} ₴`} />
           </div>
 
-          <SectionCard title="Динаміка надходжень за категоріями" aside={<span className="text-xs text-ink-2">кожна лінія — категорія, кольори як у чипах</span>}>
+          <SectionCard
+            title={<button type="button" className="font-display text-sm sm:text-[15px] font-semibold" onClick={() => setIsDynamicsOpen(!isDynamicsOpen)}>Динаміка надходжень за категоріями</button>}
+            aside={!isDynamicsOpen && <button type="button" className="inline-flex items-center gap-1 text-[13px] text-ink-2" onClick={() => setIsDynamicsOpen(!isDynamicsOpen)}>згорнуто <ChevronDown /></button>}
+          >
             {isDynamicsOpen && processedData.chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={processedData.chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
@@ -420,40 +443,51 @@ const EarnPage: React.FC = () => {
                   <XAxis dataKey="name" tick={{ fill: T.ink2, fontSize: 11 }} />
                   <YAxis tickFormatter={(value) => Math.round(value).toLocaleString('uk-UA')} tick={{ fill: T.ink2, fontSize: 11 }} width={62} />
                   <Tooltip formatter={(value: number, name: string) => [`${formatNumber(value)} ₴`, name]} contentStyle={chartTooltipStyle} />
+                  <Legend wrapperStyle={{ fontSize: 12, color: T.ink2 }} iconType="circle" />
                   {activeCategories.map(category => (
                     <Line key={category} type="monotone" dataKey={category} stroke={categoryColor(category, categories)} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                   ))}
                 </LineChart>
               </ResponsiveContainer>
             ) : isDynamicsOpen ? <p className="text-center text-ink-2 py-10">Немає даних для відображення за обраними фільтрами.</p> : null}
-            <button type="button" className="mt-2 inline-flex items-center gap-1 text-[13px] text-ink-2 hover:text-ink" onClick={() => setIsDynamicsOpen(!isDynamicsOpen)}>
-              {isDynamicsOpen ? 'Згорнути' : 'Розгорнути'} <ChevronDown className={isDynamicsOpen ? 'rotate-180' : ''} />
-            </button>
           </SectionCard>
 
           <SectionCard
             title="Надходження за період"
-            aside={<Button onClick={handleExportXls} disabled={sortedTransactions.length === 0} title="Завантажити надходження у XLSX">XLSX</Button>}
+            aside={
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={handleCopy} disabled={selectedIds.size === 0} variant="primary" title="Скопіювати виділені рядки текстом, як у таблиці">Скопіювати ({selectedIds.size})</Button>
+                {copiedToast && <span className="text-income text-sm">{copiedToast}</span>}
+                <Button onClick={handleExportXls} disabled={sortedTransactions.length === 0} title="Завантажити надходження у XLSX">XLSX</Button>
+              </div>
+            }
           >
             <div className="sm:hidden">
-              {sortedTransactions.length === 0 ? <div className="py-4 text-center text-ink-2">Транзакцій за обраними фільтрами не знайдено</div> : sortedTransactions.map((tx, index) => (
-                <div key={`${tx.id || ''}-${tx.date}-${index}-${tx.amount}`} className="flex flex-col gap-1 py-2.5 border-b border-line">
-                  <div className="flex justify-between items-baseline gap-2">
-                    <span className="text-xs text-ink-2 tabular-nums truncate">{formatDateShort(tx.date, false)} · {tx.account} · {tx.id || 'без ID'}</span>
-                    <span className="text-[15px] font-semibold tabular-nums whitespace-nowrap text-income">+ {formatNumber(tx.amount)}</span>
+              {sortedTransactions.length === 0 ? <div className="py-4 text-center text-ink-2">Транзакцій за обраними фільтрами не знайдено</div> : sortedTransactions.map((tx, index) => {
+                const key = rowKey(tx);
+                return (
+                  <div key={`${tx.id || ''}-${tx.date}-${index}-${tx.amount}`} className={`flex gap-2.5 py-2.5 border-b border-line ${selectedIds.has(key) ? 'bg-mute -mx-4 px-4' : ''}`}>
+                    <div className="pt-0.5"><Checkbox checked={selectedIds.has(key)} onChange={() => toggleSelected(key)} label={`Виділити ${tx.id || ''}`} /></div>
+                    <div className="flex-1 min-w-0 flex flex-col gap-1">
+                      <div className="flex justify-between items-baseline gap-2">
+                        <span className="text-xs text-ink-2 tabular-nums truncate">{formatDateShort(tx.date, false)} · {tx.account} · {tx.id || 'без ID'}</span>
+                        <span className="text-[15px] font-semibold tabular-nums whitespace-nowrap text-income">+ {formatNumber(tx.amount)}</span>
+                      </div>
+                      <div className="text-sm">{tx.description}</div>
+                      <div className="inline-flex items-center gap-1.5 text-xs text-ink-2 min-w-0">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categoryColor(tx.category, categories) }} />
+                        <span className="truncate">{tx.category}{tx.counterparty ? ` · ${tx.counterparty}` : ''}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-sm">{tx.description}</div>
-                  <div className="inline-flex items-center gap-1.5 text-xs text-ink-2">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categoryColor(tx.category, categories) }} />
-                    {tx.category}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full border-collapse text-[13.5px]">
                 <thead>
                   <tr>
+                    <th className="px-2.5 py-2 text-left border-b border-line w-8"><Checkbox checked={allVisibleSelected} onChange={toggleAllVisible} label="Виділити всі" /></th>
                     {columns.map(col => (
                       <th key={col.key} className={`px-2.5 py-2 border-b border-line text-[11px] uppercase tracking-[.06em] font-medium cursor-pointer select-none whitespace-nowrap ${col.align} ${sortColumn === col.key ? 'text-ink' : 'text-ink-2'}`} onClick={() => handleSort(col.key)}>
                         {col.label}{sortColumn === col.key && <SortArrow direction={sortDirection} />}
@@ -463,22 +497,27 @@ const EarnPage: React.FC = () => {
                 </thead>
                 <tbody>
                   {sortedTransactions.length === 0 ? (
-                    <tr><td colSpan={6} className="py-4 text-center text-ink-2">Транзакцій за обраними фільтрами не знайдено</td></tr>
-                  ) : sortedTransactions.map((tx, index) => (
-                    <tr key={`${tx.id || ''}-${tx.date}-${index}-${tx.amount}`}>
-                      <td className="px-2.5 py-2.5 border-b border-line align-top text-xs text-ink-2 tabular-nums whitespace-nowrap">{tx.id || 'без ID'}</td>
-                      <td className="px-2.5 py-2.5 border-b border-line align-top tabular-nums whitespace-nowrap">{formatDateShort(tx.date)}</td>
-                      <td className="px-2.5 py-2.5 border-b border-line align-top text-right whitespace-nowrap font-semibold tabular-nums text-income">+ {formatNumber(tx.amount)} ₴</td>
-                      <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap"><span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categoryColor(tx.category, categories) }} />{tx.category}</span></td>
-                      <td className="px-2.5 py-2.5 border-b border-line align-top min-w-[220px]">{tx.description}</td>
-                      <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
-                    </tr>
-                  ))}
+                    <tr><td colSpan={8} className="py-4 text-center text-ink-2">Транзакцій за обраними фільтрами не знайдено</td></tr>
+                  ) : sortedTransactions.map((tx, index) => {
+                    const key = rowKey(tx);
+                    return (
+                      <tr key={`${tx.id || ''}-${tx.date}-${index}-${tx.amount}`} className={selectedIds.has(key) ? 'bg-mute' : ''}>
+                        <td className="px-2.5 py-2.5 border-b border-line align-top"><Checkbox checked={selectedIds.has(key)} onChange={() => toggleSelected(key)} label={`Виділити ${tx.id || ''}`} /></td>
+                        <td className="px-2.5 py-2.5 border-b border-line align-top text-[11px] text-ink-3 tabular-nums whitespace-nowrap">{tx.id || 'без ID'}</td>
+                        <td className="px-2.5 py-2.5 border-b border-line align-top tabular-nums whitespace-nowrap">{formatDateShort(tx.date)}</td>
+                        <td className="px-2.5 py-2.5 border-b border-line align-top text-right whitespace-nowrap font-semibold tabular-nums text-income">+ {formatNumber(tx.amount)} ₴</td>
+                        <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap"><span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categoryColor(tx.category, categories) }} />{tx.category}</span></td>
+                        <td className="px-2.5 py-2.5 border-b border-line align-top min-w-[220px]">{tx.description}</td>
+                        <td className="px-2.5 py-2.5 border-b border-line align-top whitespace-nowrap">{tx.account}</td>
+                        <td className="px-2.5 py-2.5 border-b border-line align-top text-ink-2 whitespace-nowrap">{tx.counterparty || '—'}</td>
+                      </tr>
+                    );
+                  })}
                   {sortedTransactions.length > 0 && (
                     <tr className="border-t-[1.5px] border-ink font-semibold">
-                      <td colSpan={2} className="px-2.5 py-3">Разом надходжень</td>
+                      <td colSpan={3} className="px-2.5 py-3">Разом надходжень</td>
                       <td className="px-2.5 py-3 text-right whitespace-nowrap tabular-nums text-income">+ {formatNumber(processedData.totalIncome)} ₴</td>
-                      <td colSpan={3} className="px-2.5 py-3 text-xs text-ink-2 font-normal">{sortedTransactions.length} транзакцій · без «Початковий баланс» і переказів</td>
+                      <td colSpan={4} className="px-2.5 py-3 text-xs text-ink-2 font-normal">{sortedTransactions.length} транзакцій · без «Початковий баланс» і переказів</td>
                     </tr>
                   )}
                 </tbody>
