@@ -776,7 +776,7 @@ const TransactionsPage: React.FC = () => {
                   className="text-lg font-semibold p-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 select-none flex items-center justify-between"
                   onClick={() => setIsFiltersOpen(!isFiltersOpen)}
               >
-                  <span>Фільтри</span>
+                  <span>Фільтри{hasActiveFilters && <span className="ml-2 align-middle text-xs font-medium px-2 py-0.5 rounded-full bg-[#8884D8] text-white" title="Фільтри збережені в цьому браузері — інша людина бачить інші цифри">активних: {[selectedAccounts.length, selectedCategories.length, selectedCounterparties.length, selectedProjects.length].filter(n => n > 0).length + (selectedType !== 'Всі' ? 1 : 0)}</span>}</span>
                   <span className="flex items-center gap-4">
                       {hasActiveFilters && (
                           <button
