@@ -191,6 +191,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
                           >
                              Джерело
                           </a>
+                          <a href="/" className="ml-3 text-xs font-medium text-[#8884D8] hover:text-[#6c63b8] hover:underline whitespace-nowrap">Нова версія</a>
                        </div>
                    </>
                )}
@@ -203,6 +204,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 >
                    Джерело
                 </a>
+                <a href="/" className="ml-4 text-sm font-medium text-[#8884D8] hover:text-[#6c63b8] hover:underline whitespace-nowrap" title="Новий інтерфейс фінтрекера">Нова версія</a>
              </div>
 
           </nav>
