@@ -128,6 +128,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 <a href="https://docs.google.com/spreadsheets/d/1jl54qnar1R0nDdAIxJF6uN4eMPXacOfqasNAuwm8BNk/edit" target="_blank" rel="noopener noreferrer" className="text-[13px] text-ink-2 underline underline-offset-[3px] hover:text-ink whitespace-nowrap">
                   Джерело
                 </a>
+                <a href="/old" className="text-[13px] text-ink-3 underline underline-offset-[3px] hover:text-ink whitespace-nowrap" title="Попередній інтерфейс фінтрекера">
+                  Стара версія
+                </a>
               </div>
             </div>
             <nav className="flex md:hidden items-center gap-1 pb-1 overflow-x-auto">
