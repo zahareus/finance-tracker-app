@@ -1,0 +1,615 @@
+'use client';
+
+import { parseDate, VALID_TYPES, signedAmount } from '@/lib/tx';
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { usePersistedFilters } from '@/hooks/usePersistedState';
+import { useSheetData } from '@/hooks/useSheetData';
+
+// --- Типи даних ---
+interface Transaction {
+  date: string | null;
+  amount: number;
+  type: string;
+  account: string;
+  category: string;
+  description: string;
+  counterparty?: string;
+  project?: string;
+}
+
+interface ProjectWithBonuses {
+  name: string;
+  bonusFromSum: number | null;
+  bonusFromBalance: number | null;
+  status: string; // 'live', 'closed', або пусто
+}
+
+// Інтерфейс для збережених фільтрів сторінки Projects
+interface ProjectsPersistedFilters {
+    selectedProject: string;
+    sortColumn: string;
+    sortDirection: 'asc' | 'desc';
+}
+
+// --- Хелпери ---
+const formatNumber = (num: number): string => {
+    if (typeof num !== 'number' || isNaN(num)) { return '0,00'; }
+    return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+// Функція для отримання кольору тексту на основі статусу проекту
+const getProjectStatusColor = (status: string): string => {
+    switch (status) {
+        case 'live':
+            return 'text-[#FF8042]'; // Яскраво помаранчевий (використовується на сайті)
+        case 'closed':
+            return 'text-[#9370DB]'; // Лавандовий
+        default:
+            return 'text-black'; // Чорний за замовчуванням
+    }
+};
+
+
+// Компонент для тултіпа з розрахунком
+const TooltipWithCalculation: React.FC<{
+    children: React.ReactNode;
+    calculation: string;
+}> = ({ children, calculation }) => {
+    const [isVisible, setIsVisible] = useState(false);
+
+    return (
+        <div className="relative inline-flex items-center gap-1">
+            {children}
+            <button
+                className="text-gray-400 hover:text-gray-600 cursor-help text-xs font-bold"
+                onMouseEnter={() => setIsVisible(true)}
+                onMouseLeave={() => setIsVisible(false)}
+                onClick={() => setIsVisible(!isVisible)}
+                aria-label="Показати розрахунок"
+            >
+                (+)
+            </button>
+            {isVisible && (
+                <div className="absolute z-50 bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-pre-line min-w-[200px] max-w-[300px]">
+                    <div className="text-left">{calculation}</div>
+                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                        <div className="border-4 border-transparent border-t-gray-900"></div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const ProjectsPage: React.FC = () => {
+    // --- Стан даних (не зберігається) ---
+    const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+    const [projectsWithBonuses, setProjectsWithBonuses] = useState<ProjectWithBonuses[]>([]);
+    const { data, isLoading, error } = useSheetData();
+
+    // --- Збережені фільтри (зберігаються в localStorage) ---
+    const [filters, updateFilters] = usePersistedFilters<ProjectsPersistedFilters>(
+        'finance-tracker-projects-filters',
+        {
+            selectedProject: '',
+            sortColumn: 'date',
+            sortDirection: 'desc',
+        }
+    );
+
+    // Деструктуруємо фільтри для зручності
+    const { selectedProject, sortColumn, sortDirection } = filters;
+
+    // Функції-сеттери для фільтрів
+    const setSelectedProject = useCallback((value: string) => updateFilters({ selectedProject: value }), [updateFilters]);
+    const setSortColumn = useCallback((value: string) => updateFilters({ sortColumn: value }), [updateFilters]);
+    const setSortDirection = useCallback((value: 'asc' | 'desc') => updateFilters({ sortDirection: value }), [updateFilters]);
+
+    // --- Завантаження даних ---
+    useEffect(() => {
+        if (!data) return;
+        try {
+
+             const cleanedTransactions = data.transactions.map((tx: any) => ({
+               date: typeof tx.date === 'string' ? tx.date.trim() : null,
+               amount: typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : parseFloat(String(tx.amount || '0').replace(/,/g, '.').replace(/\s/g, '')) || 0,
+               type: String(tx?.type || '').trim(),
+               account: String(tx?.account || '').trim(),
+               category: String(tx?.category || '').trim(),
+               description: String(tx?.description || '').trim(),
+               counterparty: tx?.counterparty ? String(tx.counterparty).trim() : '',
+               project: tx?.project ? String(tx.project).trim() : '',
+             })).filter((tx: Transaction) => {
+               return tx.date && VALID_TYPES.includes(tx.type) && tx.account && tx.category && typeof tx.amount === 'number' && !isNaN(tx.amount);
+             });
+
+             setAllTransactions(cleanedTransactions);
+
+             // Обробка проектів з бонусами та статусом
+             const projectsData: ProjectWithBonuses[] = Array.isArray(data.projectsWithBonuses)
+               ? data.projectsWithBonuses.map((p: any) => ({
+                   name: String(p.name || '').trim(),
+                   bonusFromSum: typeof p.bonusFromSum === 'number' && !isNaN(p.bonusFromSum) ? p.bonusFromSum : null,
+                   bonusFromBalance: typeof p.bonusFromBalance === 'number' && !isNaN(p.bonusFromBalance) ? p.bonusFromBalance : null,
+                   status: String(p.status || '').trim().toLowerCase(), // live, closed, або пусто
+                 })).filter((p: ProjectWithBonuses) => p.name)
+               : [];
+
+             setProjectsWithBonuses(projectsData);
+
+             // Встановлюємо проект за замовчуванням тільки якщо:
+             // - немає збереженого проекту
+             // - або збережений проект не існує в списку
+             if (projectsData.length > 0) {
+               const savedProject = filters.selectedProject;
+               const projectExists = projectsData.some(p => p.name === savedProject);
+               if (!savedProject || !projectExists) {
+                 setSelectedProject(projectsData[0].name);
+               }
+             }
+        } catch (err) { console.error("Failed to process sheet data:", err); }
+     }, [data, filters.selectedProject, setSelectedProject]);
+
+    // Обробник сортування таблиці
+    const handleSort = useCallback((column: string) => {
+        if (sortColumn === column) {
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortColumn(column);
+            setSortDirection(column === 'date' ? 'desc' : 'asc');
+        }
+    }, [sortColumn, sortDirection, setSortColumn, setSortDirection]);
+
+    // --- Обчислення даних для обраного проекту ---
+    const projectData = useMemo(() => {
+        if (!selectedProject) {
+            return {
+                transactions: [],
+                totalIncome: 0,
+                totalExpenses: 0,
+                taxes: 0,
+                bonusFromSum: 0,
+                bonusFromSumPercent: 0,
+                bonusFromBalance: 0,
+                bonusFromBalancePercent: 0,
+                baseForBalanceBonus: 0,
+                totalBonuses: 0,
+                paidBonuses: 0,
+                paidBonusesTransactions: [] as Transaction[],
+                balance: 0,
+                currentProject: null as ProjectWithBonuses | null
+            };
+        }
+
+        // Знаходимо обраний проект
+        const currentProject = projectsWithBonuses.find(p => p.name === selectedProject) || null;
+
+        // Фільтруємо транзакції по проекту
+        const projectTransactions = allTransactions.filter(tx => tx.project === selectedProject);
+
+        // Відокремлюємо транзакції виплачених бонусів (категорія "Бонуси і премії")
+        const paidBonusesTransactions = projectTransactions.filter(
+            tx => tx.type === 'Витрата' && tx.category === 'Бонуси і премії'
+        );
+        const paidBonuses = paidBonusesTransactions.reduce((sum, tx) => sum + tx.amount, 0);
+
+        // Обчислюємо суми
+        const totalIncome = projectTransactions
+            .filter(tx => tx.type === 'Надходження')
+            .reduce((sum, tx) => sum + tx.amount, 0);
+
+        // Видатки БЕЗ урахування виплачених бонусів (категорія "Бонуси і премії")
+        const totalExpenses = projectTransactions
+            .filter(tx => tx.type === 'Витрата' && tx.category !== 'Бонуси і премії')
+            .reduce((sum, tx) => sum + tx.amount, 0);
+
+        // Податки 11% від надходжень
+        const taxes = totalIncome * 0.11;
+
+        // Бонус з суми (відсоток від надходжень)
+        const bonusFromSumPercent = currentProject?.bonusFromSum ?? 0;
+        const bonusFromSum = totalIncome * (bonusFromSumPercent / 100);
+
+        // Бонус з балансу (відсоток від (надходження - ВИДАТКИ - податки - бонус з суми))
+        const bonusFromBalancePercent = currentProject?.bonusFromBalance ?? 0;
+        const baseForBalanceBonus = totalIncome - totalExpenses - taxes - bonusFromSum;
+        const bonusFromBalance = baseForBalanceBonus > 0 ? baseForBalanceBonus * (bonusFromBalancePercent / 100) : 0;
+
+        // Загальні нараховані бонуси
+        const totalBonuses = bonusFromSum + bonusFromBalance;
+
+        // Баланс = Надходження - Видатки - Податки - Бонуси (нараховані)
+        const balance = totalIncome - totalExpenses - taxes - totalBonuses;
+
+        return {
+            transactions: projectTransactions,
+            totalIncome,
+            totalExpenses,
+            taxes,
+            bonusFromSum,
+            bonusFromSumPercent,
+            bonusFromBalance,
+            bonusFromBalancePercent,
+            baseForBalanceBonus,
+            totalBonuses,
+            paidBonuses,
+            paidBonusesTransactions,
+            balance,
+            currentProject
+        };
+    }, [allTransactions, selectedProject, projectsWithBonuses]);
+
+    // --- Тексти розрахунків для тултіпів ---
+    const calculations = useMemo(() => {
+        const { totalIncome, totalExpenses, taxes, bonusFromSum, bonusFromSumPercent, bonusFromBalance, bonusFromBalancePercent, baseForBalanceBonus, totalBonuses, paidBonuses, paidBonusesTransactions, balance } = projectData;
+
+        // Формуємо текст розшифровки виплачених бонусів
+        let paidBonusesCalculation = 'Сума виплачених бонусів по проекту:\n';
+        if (paidBonusesTransactions.length > 0) {
+            paidBonusesTransactions.forEach((tx) => {
+                paidBonusesCalculation += `${tx.date}: ${formatNumber(tx.amount)} ₴ - ${tx.description || tx.counterparty || 'Бонус'}\n`;
+            });
+            paidBonusesCalculation += `\nРазом: ${formatNumber(paidBonuses)} ₴`;
+        } else {
+            paidBonusesCalculation = 'Виплачених бонусів немає';
+        }
+
+        return {
+            taxes: `Податки й комісії посередників — орієнтовно 11% від усього, що надійшло на проєкт\n= Надходження × 11%\n= ${formatNumber(totalIncome)} × 0.11\n= ${formatNumber(taxes)} ₴`,
+            bonusFromSum: `Бонус з суми = Надходження × ${bonusFromSumPercent}%\n= ${formatNumber(totalIncome)} × ${bonusFromSumPercent / 100}\n= ${formatNumber(bonusFromSum)} ₴`,
+            bonusFromBalance: `База = Надходження - Видатки - Податки - Бонус з суми\n= ${formatNumber(totalIncome)} - ${formatNumber(totalExpenses)} - ${formatNumber(taxes)} - ${formatNumber(bonusFromSum)}\n= ${formatNumber(baseForBalanceBonus)} ₴\n\nБонус з балансу = База × ${bonusFromBalancePercent}%\n= ${formatNumber(baseForBalanceBonus)} × ${bonusFromBalancePercent / 100}\n= ${formatNumber(bonusFromBalance)} ₴`,
+            totalBonuses: bonusFromSum > 0 && bonusFromBalance > 0
+                ? `Бонуси нарах. = Бонус з суми + Бонус з балансу\n= ${formatNumber(bonusFromSum)} + ${formatNumber(bonusFromBalance)}\n= ${formatNumber(totalBonuses)} ₴`
+                : bonusFromSum > 0
+                    ? `Бонуси нарах. = Бонус з суми\n= ${formatNumber(bonusFromSum)} ₴`
+                    : bonusFromBalance > 0
+                        ? `Бонуси нарах. = Бонус з балансу\n= ${formatNumber(bonusFromBalance)} ₴`
+                        : `Бонуси нарах. = 0 ₴`,
+            paidBonuses: paidBonusesCalculation,
+            balance: `Баланс = Надходження - Видатки - Податки - Бонуси нарах.\n= ${formatNumber(totalIncome)} - ${formatNumber(totalExpenses)} - ${formatNumber(taxes)} - ${formatNumber(totalBonuses)}\n= ${formatNumber(balance)} ₴`
+        };
+    }, [projectData]);
+
+    // --- РЕНДЕР КОМПОНЕНТА ---
+    return (
+        <div>
+          {/* --- Вибір проекту --- */}
+          <div className="mb-6">
+              <h2 className="text-lg font-semibold mb-3 text-center">Оберіть проект</h2>
+              {isLoading ? (
+                  <p className="text-center text-gray-500">Завантаження проектів...</p>
+              ) : error ? (
+                  <p className="text-center text-red-600">Помилка: {error}</p>
+              ) : projectsWithBonuses.length === 0 ? (
+                  <p className="text-center text-gray-500">Проектів не знайдено</p>
+              ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-3">
+                      {projectsWithBonuses.map((project) => (
+                          <button
+                              key={project.name}
+                              onClick={() => setSelectedProject(project.name)}
+                              className={`p-3 sm:p-4 rounded-lg border-2 text-center transition-all duration-200 ${
+                                  selectedProject === project.name
+                                      ? 'border-[#8884D8] bg-[#8884D8] shadow-lg'
+                                      : 'border-gray-200 bg-white hover:border-[#8884D8] hover:shadow-md'
+                              }`}
+                          >
+                              <span className={`text-xs sm:text-sm font-medium block truncate ${
+                                  selectedProject === project.name
+                                      ? 'text-white'
+                                      : getProjectStatusColor(project.status)
+                              }`}>
+                                  {project.name}
+                              </span>
+                              {(project.bonusFromSum !== null || project.bonusFromBalance !== null) && (
+                                  <span className={`text-xs mt-1 block ${selectedProject === project.name ? 'text-white/80' : 'text-gray-400'}`}>
+                                      {project.bonusFromSum !== null && `${project.bonusFromSum}%`}
+                                      {project.bonusFromSum !== null && project.bonusFromBalance !== null && ' / '}
+                                      {project.bonusFromBalance !== null && `${project.bonusFromBalance}%`}
+                                  </span>
+                              )}
+                          </button>
+                      ))}
+                  </div>
+              )}
+          </div>
+
+          {/* --- Блок балансу проекту (без графіка) --- */}
+          {!isLoading && !error && selectedProject && (
+              <div className="p-4 border rounded shadow bg-white mb-6">
+                  <h2 className="text-lg font-semibold mb-4 text-center">
+                      Баланс проекту: {selectedProject}
+                  </h2>
+
+                  {projectData.transactions.length > 0 ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+                          {/* Надходження */}
+                          <div className="text-center p-3 bg-green-50 rounded-lg">
+                              <p className="text-xs sm:text-sm text-gray-600 mb-1">Надходження</p>
+                              <p className="text-lg sm:text-xl font-bold text-[#00C49F]">
+                                  {formatNumber(projectData.totalIncome)} ₴
+                              </p>
+                          </div>
+
+                          {/* Видатки */}
+                          <div className="text-center p-3 bg-red-50 rounded-lg">
+                              <p className="text-xs sm:text-sm text-gray-600 mb-1">Видатки</p>
+                              <p className="text-lg sm:text-xl font-bold text-[#FF8042]">
+                                  {formatNumber(projectData.totalExpenses)} ₴
+                              </p>
+                          </div>
+
+                          {/* Податки */}
+                          <div className="text-center p-3 bg-yellow-50 rounded-lg">
+                              <p className="text-xs sm:text-sm text-gray-600 mb-1">
+                                  <TooltipWithCalculation calculation={calculations.taxes}>
+                                      <span>Податки та комісії посередників (11%)</span>
+                                  </TooltipWithCalculation>
+                              </p>
+                              <p className="text-lg sm:text-xl font-bold text-yellow-600">
+                                  {formatNumber(projectData.taxes)} ₴
+                              </p>
+                          </div>
+
+                          {/* Бонуси нараховані */}
+                          <div className="text-center p-3 bg-orange-50 rounded-lg">
+                              <p className="text-xs sm:text-sm text-gray-600 mb-1">
+                                  <TooltipWithCalculation calculation={calculations.totalBonuses}>
+                                      <span>Бонуси нарах.</span>
+                                  </TooltipWithCalculation>
+                              </p>
+                              <p className="text-lg sm:text-xl font-bold text-orange-500">
+                                  {formatNumber(projectData.totalBonuses)} ₴
+                              </p>
+                              {(projectData.bonusFromSum > 0 || projectData.bonusFromBalance > 0) && (
+                                  <p className="text-xs text-gray-400 mt-1">
+                                      {projectData.bonusFromSum > 0 && `з суми: ${formatNumber(projectData.bonusFromSum)}`}
+                                      {projectData.bonusFromSum > 0 && projectData.bonusFromBalance > 0 && ' | '}
+                                      {projectData.bonusFromBalance > 0 && `з балансу: ${formatNumber(projectData.bonusFromBalance)}`}
+                                  </p>
+                              )}
+                          </div>
+
+                          {/* Бонуси виплачені */}
+                          <div className="text-center p-3 bg-amber-50 rounded-lg">
+                              <p className="text-xs sm:text-sm text-gray-600 mb-1">
+                                  <TooltipWithCalculation calculation={calculations.paidBonuses}>
+                                      <span>Бонуси випл.</span>
+                                  </TooltipWithCalculation>
+                              </p>
+                              <p className="text-lg sm:text-xl font-bold text-amber-600">
+                                  {formatNumber(projectData.paidBonuses)} ₴
+                              </p>
+                          </div>
+
+                          {/* Баланс */}
+                          <div className="text-center p-3 bg-purple-50 rounded-lg col-span-2 sm:col-span-1">
+                              <p className="text-xs sm:text-sm text-gray-600 mb-1">
+                                  <TooltipWithCalculation calculation={calculations.balance}>
+                                      <span>Баланс</span>
+                                  </TooltipWithCalculation>
+                              </p>
+                              <p className={`text-lg sm:text-xl font-bold ${projectData.balance >= 0 ? 'text-[#8884D8]' : 'text-red-600'}`}>
+                                  {formatNumber(projectData.balance)} ₴
+                              </p>
+                          </div>
+                      </div>
+                  ) : (
+                      <p className="text-center text-gray-500 py-10">
+                          Немає транзакцій для цього проекту
+                      </p>
+                  )}
+              </div>
+          )}
+
+          {/* --- Таблиця транзакцій проекту --- */}
+          {!isLoading && !error && selectedProject && (
+              <div className="overflow-x-auto">
+                  <h2 className="text-lg font-semibold mb-2 text-center">
+                      Транзакції проекту
+                  </h2>
+                  <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                          <tr>
+                              <th
+                                  scope="col"
+                                  className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'date' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                                  onClick={() => handleSort('date')}
+                              >
+                                  Дата {sortColumn === 'date' && (sortDirection === 'asc' ? '↑' : '↓')}
+                              </th>
+                              <th
+                                  scope="col"
+                                  className={`px-4 py-2 text-right text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'amount' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                                  onClick={() => handleSort('amount')}
+                              >
+                                  Сума {sortColumn === 'amount' && (sortDirection === 'asc' ? '↑' : '↓')}
+                              </th>
+                              <th
+                                  scope="col"
+                                  className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'description' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                                  onClick={() => handleSort('description')}
+                              >
+                                  Опис {sortColumn === 'description' && (sortDirection === 'asc' ? '↑' : '↓')}
+                              </th>
+                              <th
+                                  scope="col"
+                                  className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'category' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                                  onClick={() => handleSort('category')}
+                              >
+                                  Категорія {sortColumn === 'category' && (sortDirection === 'asc' ? '↑' : '↓')}
+                              </th>
+                              <th
+                                  scope="col"
+                                  className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'account' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                                  onClick={() => handleSort('account')}
+                              >
+                                  Рахунок {sortColumn === 'account' && (sortDirection === 'asc' ? '↑' : '↓')}
+                              </th>
+                              <th
+                                  scope="col"
+                                  className={`px-4 py-2 text-left text-xs uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none ${sortColumn === 'counterparty' ? 'font-bold text-gray-900' : 'font-medium text-gray-500'}`}
+                                  onClick={() => handleSort('counterparty')}
+                              >
+                                  Контрагент {sortColumn === 'counterparty' && (sortDirection === 'asc' ? '↑' : '↓')}
+                              </th>
+                          </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                          {projectData.transactions.length === 0 ? (
+                              <tr>
+                                  <td colSpan={6} className="px-4 py-4 text-center text-gray-500">
+                                      Транзакцій для цього проекту не знайдено
+                                  </td>
+                              </tr>
+                          ) : (
+                              <>
+                                  {/* Транзакції */}
+                                  {[...projectData.transactions]
+                                      .sort((a, b) => {
+                                          let comparison = 0;
+                                          switch (sortColumn) {
+                                              case 'date':
+                                                  const dateA = parseDate(a.date);
+                                                  const dateB = parseDate(b.date);
+                                                  if (!dateA && !dateB) comparison = 0;
+                                                  else if (!dateA) comparison = 1;
+                                                  else if (!dateB) comparison = -1;
+                                                  else comparison = dateA.getTime() - dateB.getTime();
+                                                  break;
+                                              case 'amount':
+                                                  const amountA = signedAmount(a);
+                                                  const amountB = signedAmount(b);
+                                                  comparison = amountA - amountB;
+                                                  break;
+                                              case 'description':
+                                                  comparison = (a.description || '').localeCompare(b.description || '', 'uk');
+                                                  break;
+                                              case 'category':
+                                                  comparison = (a.category || '').localeCompare(b.category || '', 'uk');
+                                                  break;
+                                              case 'account':
+                                                  comparison = (a.account || '').localeCompare(b.account || '', 'uk');
+                                                  break;
+                                              case 'counterparty':
+                                                  comparison = (a.counterparty || '').localeCompare(b.counterparty || '', 'uk');
+                                                  break;
+                                              default:
+                                                  comparison = 0;
+                                          }
+                                          return sortDirection === 'asc' ? comparison : -comparison;
+                                      })
+                                      .map((tx, index) => (
+                                          <tr
+                                              key={`${tx.date}-${index}-${tx.amount}`}
+                                              className={`${tx.type === 'Витрата' ? 'bg-red-50 hover:bg-red-100' : 'bg-green-50 hover:bg-green-100'} transition-colors duration-150 ease-in-out`}
+                                          >
+                                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{tx.date}</td>
+                                              <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-medium ${tx.type === 'Витрата' ? 'text-[#FF8042]' : 'text-[#00C49F]'}`}>
+                                                  {tx.type === 'Витрата' ? '-' : '+'} {formatNumber(tx.amount)} ₴
+                                              </td>
+                                              <td className="px-4 py-2 text-sm text-gray-500 min-w-[220px]">{tx.description}</td>
+                                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.category}</td>
+                                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.account}</td>
+                                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.counterparty || '-'}</td>
+                                          </tr>
+                                      ))
+                                  }
+
+                                  {/* Розрахункові рядки */}
+                                  {projectData.transactions.length > 0 && (
+                                      <>
+                                          {/* Податки */}
+                                          <tr className="bg-yellow-100 border-t-2 border-yellow-300">
+                                              <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-yellow-800">
+                                                  Розрахунково
+                                              </td>
+                                              <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-yellow-800">
+                                                  - {formatNumber(projectData.taxes)} ₴
+                                              </td>
+                                              <td colSpan={4} className="px-4 py-2 text-sm text-yellow-800">
+                                                  <TooltipWithCalculation calculation={calculations.taxes}>
+                                                      <span>Податки (11% від надходжень)</span>
+                                                  </TooltipWithCalculation>
+                                              </td>
+                                          </tr>
+
+                                          {/* Бонус з суми */}
+                                          {projectData.currentProject && projectData.currentProject.bonusFromSum !== null && projectData.bonusFromSum > 0 && (
+                                              <tr className="bg-orange-100">
+                                                  <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-orange-800">
+                                                      Розрахунково
+                                                  </td>
+                                                  <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-orange-800">
+                                                      - {formatNumber(projectData.bonusFromSum)} ₴
+                                                  </td>
+                                                  <td colSpan={4} className="px-4 py-2 text-sm text-orange-800">
+                                                      <TooltipWithCalculation calculation={calculations.bonusFromSum}>
+                                                          <span>Бонус з суми ({projectData.currentProject.bonusFromSum}% від надходжень)</span>
+                                                      </TooltipWithCalculation>
+                                                  </td>
+                                              </tr>
+                                          )}
+
+                                          {/* Бонус з балансу */}
+                                          {projectData.currentProject && projectData.currentProject.bonusFromBalance !== null && projectData.bonusFromBalance > 0 && (
+                                              <tr className="bg-orange-100">
+                                                  <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-orange-800">
+                                                      Розрахунково
+                                                  </td>
+                                                  <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-orange-800">
+                                                      - {formatNumber(projectData.bonusFromBalance)} ₴
+                                                  </td>
+                                                  <td colSpan={4} className="px-4 py-2 text-sm text-orange-800">
+                                                      <TooltipWithCalculation calculation={calculations.bonusFromBalance}>
+                                                          <span>Бонус з балансу ({projectData.currentProject.bonusFromBalance}% від надходжень за мінусом видатків, податків та бонусу з суми)</span>
+                                                      </TooltipWithCalculation>
+                                                  </td>
+                                              </tr>
+                                          )}
+
+                                          {/* Виплачено (бонуси) */}
+                                          {projectData.paidBonuses > 0 && (
+                                              <tr className="bg-amber-100">
+                                                  <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-amber-800">
+                                                      Виплачено
+                                                  </td>
+                                                  <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-amber-800">
+                                                      - {formatNumber(projectData.paidBonuses)} ₴
+                                                  </td>
+                                                  <td colSpan={4} className="px-4 py-2 text-sm text-amber-800">
+                                                      <TooltipWithCalculation calculation={calculations.paidBonuses}>
+                                                          <span>Сума виплачених бонусів по проекту</span>
+                                                      </TooltipWithCalculation>
+                                                  </td>
+                                              </tr>
+                                          )}
+
+                                          {/* Баланс */}
+                                          <tr className="bg-purple-100 border-t-2 border-purple-300">
+                                              <td className="px-4 py-2 whitespace-nowrap text-sm font-bold text-purple-800">
+                                                  Баланс
+                                              </td>
+                                              <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-bold ${projectData.balance >= 0 ? 'text-purple-800' : 'text-red-600'}`}>
+                                                  {formatNumber(projectData.balance)} ₴
+                                              </td>
+                                              <td colSpan={4} className="px-4 py-2 text-sm text-purple-800">
+                                                  <TooltipWithCalculation calculation={calculations.balance}>
+                                                      <span>Надходження - Видатки - Податки - Бонуси нарах.</span>
+                                                  </TooltipWithCalculation>
+                                              </td>
+                                          </tr>
+                                      </>
+                                  )}
+                              </>
+                          )}
+                      </tbody>
+                  </table>
+              </div>
+          )}
+        </div>
+    );
+};
+
+export default ProjectsPage;

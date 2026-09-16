@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Golos_Text, Unbounded } from 'next/font/google';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import './globals.css';
+import '../globals.css';
 import { SheetDataProvider, useSheetData } from '@/hooks/useSheetData';
 import { signedAmount, parseDate, RUNWAY_EXCLUDED_DEFAULT } from '@/lib/tx';
 import { usePersistedState } from '@/hooks/usePersistedState';
