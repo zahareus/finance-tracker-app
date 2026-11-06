@@ -496,7 +496,7 @@ const TransactionsPage: React.FC = () => {
             .filter(tx => tx.type === 'Витрата')
             .reduce((sum, tx) => sum + tx.amount, 0);
 
-        const balance = income - expense;
+        const balance = processedData.filteredTransactions.reduce((sum, tx) => sum + signedAmount(tx), 0); // з переказами, як у шапці й на графіку
 
         return { income, expense, balance };
     }, [processedData.filteredTransactions]);
@@ -532,7 +532,7 @@ const TransactionsPage: React.FC = () => {
         return {
             income: incomeCalc,
             expense: expenseCalc,
-            balance: `Баланс = Надходження - Видатки\n= ${formatNumber(totalSums.income)} - ${formatNumber(totalSums.expense)}\n= ${formatNumber(totalSums.balance)} ₴`
+            balance: `Різниця = Надходження - Видатки ± Перекази\n= ${formatNumber(totalSums.income)} - ${formatNumber(totalSums.expense)} ${formatNumber(totalSums.balance - totalSums.income + totalSums.expense)} (перекази)\n= ${formatNumber(totalSums.balance)} ₴`
         };
     }, [totalSums, processedData.filteredTransactions]);
 
